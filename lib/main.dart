@@ -22,21 +22,10 @@ const MethodChannel kQuickControlsChannel =
 const String kCreatorWebhookUrl = '';
 const String kCreatorDefaultSubUrl = '';
 
-enum PingMode { httpGet, httpHead, tcp, icmp }
+enum PingMode { real, tcp }
 
 extension PingModeLabel on PingMode {
-  String get label {
-    switch (this) {
-      case PingMode.httpGet:
-        return 'GET';
-      case PingMode.httpHead:
-        return 'HEAD';
-      case PingMode.tcp:
-        return 'TCP';
-      case PingMode.icmp:
-        return 'ICMP';
-    }
-  }
+  String get label => this == PingMode.real ? 'Real Ping' : 'TCP Ping';
 }
 
 const String kDefaultPingUrl = 'https://www.gstatic.com/generate_204';
@@ -1522,6 +1511,11 @@ class _MainShellState extends State<MainShell> {
   bool pingBestOfTwo = true;
   bool pingBypassRouting = false;
   String pingTestUrl = kDefaultPingUrl;
+  String ipAddress = '';
+  String ipCountryCode = '';
+  String serverIp = '';
+  String serverCountryCode = '';
+  bool isCheckingIp = false;
   bool isTestingAll = false;
   int pingTestsCompleted = 0;
   int pingTestsTotal = 0;
@@ -1876,6 +1870,68 @@ class _MainShellState extends State<MainShell> {
     } catch (_) {}
   }
 
+  static String flagOf(String code) {
+    if (code.length != 2) return '🏳️';
+    final c = code.toUpperCase();
+    return String.fromCharCodes([
+      0x1F1E6 + c.codeUnitAt(0) - 0x41,
+      0x1F1E6 + c.codeUnitAt(1) - 0x41,
+    ]);
+  }
+
+  Future<JsonMap?> _fetchJson(String url) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final req = await client.getUrl(Uri.parse(url));
+      final res = await req.close().timeout(const Duration(seconds: 10));
+      if (res.statusCode != 200) return null;
+      final body = await res.transform(utf8.decoder).join();
+      final data = jsonDecode(body);
+      return data is Map<String, dynamic> ? data : null;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> checkIpCountry() async {
+    if (isCheckingIp) return;
+    setState(() => isCheckingIp = true);
+    try {
+      // در حالت VPN این درخواست از تونل عبور می‌کند و IP خروجی را برمی‌گرداند
+      final exit = await _fetchJson('https://api.country.is/');
+
+      var sIp = '';
+      var sCode = '';
+      final target = selectedServer;
+      if (target != null) {
+        final ep = extractServerEndpoint(target.fullJsonConfig);
+        if (ep != null) {
+          try {
+            final addr = await InternetAddress.lookup(ep.host)
+                .timeout(const Duration(seconds: 4));
+            if (addr.isNotEmpty) {
+              sIp = addr.first.address;
+              final info = await _fetchJson('https://api.country.is/$sIp');
+              sCode = (info?['country'] ?? '').toString();
+            }
+          } catch (_) {}
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        ipAddress = (exit?['ip'] ?? '').toString();
+        ipCountryCode = (exit?['country'] ?? '').toString();
+        serverIp = sIp;
+        serverCountryCode = sCode;
+      });
+    } finally {
+      if (mounted) setState(() => isCheckingIp = false);
+    }
+  }
+
   // ------------------------------------------------------------------ ساخت کانفیگ
 
   String buildCustomizedConfig(String rawJson) {
@@ -2087,33 +2143,6 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  // ICMP: پینگ واقعی شبکه با دستور ping سیستم (۳ بسته، میانه)
-  Future<int> _measureIcmp(ServerItem server) async {
-    final endpoint = extractServerEndpoint(server.fullJsonConfig);
-    if (endpoint == null) return -1;
-
-    try {
-      final addresses = await InternetAddress.lookup(endpoint.host)
-          .timeout(const Duration(seconds: 4));
-      if (addresses.isEmpty) return -1;
-
-      final result = await Process.run(
-        'ping',
-        ['-c', '3', '-W', '2', addresses.first.address],
-      ).timeout(const Duration(seconds: 12));
-
-      final samples = RegExp(r'time[=<]([\d.]+)')
-          .allMatches(result.stdout.toString())
-          .map((m) => double.parse(m.group(1)!).round())
-          .toList()
-        ..sort();
-      if (samples.isEmpty) return -1;
-      return samples[samples.length ~/ 2];
-    } catch (_) {
-      return -1;
-    }
-  }
-
   // Via Proxy: درخواست HTTP به آدرس تست، از داخل تونل/پروکسی سرور انجام می‌شود.
   // اگر «دو درخواست» فعال باشد، بهترین نتیجه از دو اجرا انتخاب می‌شود.
   Future<int> _measureViaProxy(ServerItem server) async {
@@ -2157,11 +2186,7 @@ class _MainShellState extends State<MainShell> {
         case PingMode.tcp:
           result = await _measureTcp(server);
           break;
-        case PingMode.icmp:
-          result = await _measureIcmp(server);
-          break;
-        case PingMode.httpGet:
-        case PingMode.httpHead:
+        case PingMode.real:
           result = await _measureViaProxy(server);
           break;
       }
@@ -2188,8 +2213,7 @@ class _MainShellState extends State<MainShell> {
 
     try {
       // حالت‌های via proxy منابع هسته را اشغال می‌کنند، پس یکی‌یکی اجرا می‌شوند
-      final isProxyMode =
-          mode == PingMode.httpGet || mode == PingMode.httpHead;
+      final isProxyMode = mode == PingMode.real;
       final int batchSize = isProxyMode ? 1 : 4;
       for (var i = 0; i < list.length; i += batchSize) {
         if (!mounted) break;
@@ -2670,7 +2694,7 @@ class _MainShellState extends State<MainShell> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'پشتیبانی کامل از VLESS (Reality/XHTTP)، VMess، Trojan، Shadowsocks، SOCKS5 و JSON سفارشی.',
+                  'پشتیبانی کامل از VLESS (Reality/XHTTP), VMess, Trojan, Shadowsocks, SOCKS5 و JSON سفارشی.',
                   style: TextStyle(color: Colors.grey, fontSize: 12),
                 ),
                 const SizedBox(height: 14),
@@ -3298,6 +3322,8 @@ class _MainShellState extends State<MainShell> {
                     activeColor: activeColor,
                     onTap: toggleVpn,
                   ),
+                  const SizedBox(height: 14),
+                  _buildIpCard(),
 
                   const SizedBox(height: 14),
                   Text(
@@ -3647,7 +3673,7 @@ class _MainShellState extends State<MainShell> {
             child: Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'GET/HEAD: درخواست از داخل تونل • TCP: میانهٔ ۳ اتصال • ICMP: پینگ شبکه',
+                'Real Ping: از داخل تونل • TCP Ping: میانهٔ ۳ اتصال به سرور',
                 style: TextStyle(fontSize: 9, color: Colors.grey),
               ),
             ),
@@ -4034,6 +4060,64 @@ class _MainShellState extends State<MainShell> {
             Text(
               '⚠️ ${sub.lastError}',
               style: const TextStyle(color: Colors.orangeAccent, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIpCard() {
+    final exitFlag = flagOf(ipCountryCode);
+    final serverFlag = flagOf(serverCountryCode);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.public_rounded, size: 18),
+              const SizedBox(width: 6),
+              const Text('IP', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Spacer(),
+              FilledButton.tonal(
+                onPressed: isCheckingIp ? null : checkIpCountry,
+                child: isCheckingIp
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Real IP'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (ipAddress.isEmpty)
+            const Text(
+              'برای تشخیص کشور IP خروجی، دکمهٔ Real IP را بزنید',
+              style: TextStyle(fontSize: 11, color: Colors.grey),
+            )
+          else ...[
+            Text(
+              'IP خروجی: $ipAddress  $exitFlag ${ipCountryCode.toUpperCase()}',
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              serverIp.isEmpty
+                  ? 'کشور سرور: نامشخص'
+                  : 'IP سرور: $serverIp  $serverFlag ${serverCountryCode.toUpperCase()}',
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
         ],
