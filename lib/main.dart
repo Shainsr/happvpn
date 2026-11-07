@@ -22,10 +22,10 @@ const MethodChannel kQuickControlsChannel =
 const String kCreatorWebhookUrl = '';
 const String kCreatorDefaultSubUrl = '';
 
-enum PingMode { real, tcp }
+enum PingMode { real }
 
 extension PingModeLabel on PingMode {
-  String get label => this == PingMode.real ? 'Real Ping' : 'TCP Ping';
+  String get label => 'Real Ping';
 }
 
 const String kDefaultPingUrl = 'https://www.gstatic.com/generate_204';
@@ -49,7 +49,7 @@ Future<void> vpnBackgroundMain() async {
   final isConnected = prefs.getBool('bg_vpn_connected') ?? false;
   final config = prefs.getString('native_ready_config') ?? '';
   final remark = prefs.getString('native_ready_remark') ?? 'SHIN Server';
-  final isProxyOnly = prefs.getBool('isProxyOnly') ?? false;
+  const isProxyOnly = false;
 
   final v2ray = V2ray(
     onStatusChanged: (status) async {
@@ -111,7 +111,7 @@ const List<String> kSupportedSchemes = [
   'socks5',
 ];
 
-enum AppThemeModeSetting { dark, midnight, light, cream }
+enum AppThemeModeSetting { system, dark, light }
 
 // ---------------------------------------------------------------------------
 //  پارسر پیشرفته لینک‌ها
@@ -1377,7 +1377,7 @@ class ShinVPNApp extends StatefulWidget {
 }
 
 class _ShinVPNAppState extends State<ShinVPNApp> {
-  AppThemeModeSetting currentTheme = AppThemeModeSetting.midnight;
+  AppThemeModeSetting currentTheme = AppThemeModeSetting.system;
 
   @override
   void initState() {
@@ -1387,85 +1387,56 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
 
   Future<void> loadSavedTheme() async {
     final prefs = await SharedPreferences.getInstance();
-    final themeIndex = prefs.getInt('saved_theme_mode') ?? 1;
+    // کلید جدید: ۰ سیستم، ۱ دارک، ۲ روشن
+    final idx = prefs.getInt('saved_theme_mode_v2') ?? 0;
     if (!mounted) return;
     setState(() {
       currentTheme = AppThemeModeSetting.values[
-          themeIndex.clamp(0, AppThemeModeSetting.values.length - 1)];
+          idx.clamp(0, AppThemeModeSetting.values.length - 1)];
     });
   }
 
   Future<void> setTheme(AppThemeModeSetting mode) async {
     setState(() => currentTheme = mode);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('saved_theme_mode', mode.index);
+    await prefs.setInt('saved_theme_mode_v2', mode.index);
   }
 
-  ThemeData getThemeData() {
-    late final ThemeData baseTheme;
+  ThemeMode get _themeMode {
     switch (currentTheme) {
-      case AppThemeModeSetting.light:
-        baseTheme = ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.light,
-          fontFamily: 'Vazirmatn',
-          scaffoldBackgroundColor: const Color(0xFFF3F5F9),
-          cardColor: const Color(0xFFFFFFFF),
-          colorScheme: const ColorScheme.light(
-            primary: Color(0xFF2563EB),
-            secondary: Color(0xFF10B981),
-            surface: Color(0xFFFFFFFF),
-          ),
-        );
-        break;
-      case AppThemeModeSetting.cream:
-        baseTheme = ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.light,
-          fontFamily: 'Vazirmatn',
-          scaffoldBackgroundColor: const Color(0xFFF7F4EE),
-          cardColor: const Color(0xFFFFFFFF),
-          colorScheme: const ColorScheme.light(
-            primary: Color(0xFF8D6E63),
-            secondary: Color(0xFF4CAF50),
-            surface: Color(0xFFFFFFFF),
-          ),
-        );
-        break;
+      case AppThemeModeSetting.system:
+        return ThemeMode.system;
       case AppThemeModeSetting.dark:
-        baseTheme = ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.dark,
-          fontFamily: 'Vazirmatn',
-          scaffoldBackgroundColor: const Color(0xFF050507),
-          cardColor: const Color(0xFF131419),
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF3B82F6),
-            secondary: Color(0xFF00E676),
-            surface: Color(0xFF131419),
-          ),
-        );
-        break;
-      case AppThemeModeSetting.midnight:
-        baseTheme = ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.dark,
-          fontFamily: 'Vazirmatn',
-          scaffoldBackgroundColor: const Color(0xFF0B0F19),
-          cardColor: const Color(0xFF151C2C),
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF6366F1),
-            secondary: Color(0xFF10B981),
-            surface: Color(0xFF151C2C),
-          ),
-        );
-        break;
+        return ThemeMode.dark;
+      case AppThemeModeSetting.light:
+        return ThemeMode.light;
     }
+  }
 
-    return baseTheme.copyWith(
-      textTheme: baseTheme.textTheme.apply(fontFamily: 'Vazirmatn'),
-      primaryTextTheme:
-          baseTheme.primaryTextTheme.apply(fontFamily: 'Vazirmatn'),
+  ThemeData _buildTheme(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    final base = ThemeData(
+      useMaterial3: true,
+      brightness: brightness,
+      fontFamily: 'Vazirmatn',
+      scaffoldBackgroundColor:
+          isDark ? const Color(0xFF0B0F19) : const Color(0xFFF3F5F9),
+      cardColor: isDark ? const Color(0xFF151C2C) : const Color(0xFFFFFFFF),
+      colorScheme: isDark
+          ? const ColorScheme.dark(
+              primary: Color(0xFF6366F1),
+              secondary: Color(0xFF10B981),
+              surface: Color(0xFF151C2C),
+            )
+          : const ColorScheme.light(
+              primary: Color(0xFF2563EB),
+              secondary: Color(0xFF10B981),
+              surface: Color(0xFFFFFFFF),
+            ),
+    );
+    return base.copyWith(
+      textTheme: base.textTheme.apply(fontFamily: 'Vazirmatn'),
+      primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Vazirmatn'),
     );
   }
 
@@ -1474,7 +1445,9 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'SHIN',
-      theme: getThemeData(),
+      theme: _buildTheme(Brightness.light),
+      darkTheme: _buildTheme(Brightness.dark),
+      themeMode: _themeMode,
       home: MainShell(onThemeChanged: setTheme, currentTheme: currentTheme),
     );
   }
@@ -1510,9 +1483,9 @@ class _MainShellState extends State<MainShell> {
   String selectedGroupFilter = 'ALL';
   String searchQuery = '';
   bool sortByPing = false;
-  PingMode selectedPingMode = PingMode.tcp;
+  PingMode selectedPingMode = PingMode.real;
   int pingProxyTimeoutSec = 5;
-  bool pingBestOfTwo = true;
+  bool pingBestOfTwo = false;
   bool pingBypassRouting = false;
   String pingTestUrl = kDefaultPingUrl;
   String ipAddress = '';
@@ -1557,6 +1530,19 @@ class _MainShellState extends State<MainShell> {
         unawaited(
           _syncNativeConnectionState(status.state == 'CONNECTED', status.state),
         );
+        if (status.state == 'CONNECTED') {
+          // کمی صبر تا تونل کاملاً بالا بیاید، سپس IP خروجی تشخیص داده شود
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted && isConnected) checkIpCountry();
+          });
+        } else if (status.state == 'DISCONNECTED' && mounted) {
+          setState(() {
+            ipAddress = '';
+            ipCountryCode = '';
+            serverIp = '';
+            serverCountryCode = '';
+          });
+        }
       },
     );
     initEngineAndLoadData();
@@ -1850,7 +1836,7 @@ class _MainShellState extends State<MainShell> {
       setState(() {
         hwid = savedHwid;
         selectedServerId = prefs.getString('selectedServerId') ?? '';
-        isProxyOnly = prefs.getBool('isProxyOnly') ?? false;
+        isProxyOnly = false;
         bypassLan = prefs.getBool('bypassLan') ?? true;
         bypassIran = prefs.getBool('bypassIran') ?? true;
         enableMux = prefs.getBool('enableMux') ?? false;
@@ -1860,11 +1846,11 @@ class _MainShellState extends State<MainShell> {
         updateRepoUrl = prefs.getString('updateRepoUrl') ?? updateRepoUrl;
         selectedPingMode = PingMode.values.firstWhere(
           (mode) => mode.name == prefs.getString('pingMode'),
-          orElse: () => PingMode.tcp,
+          orElse: () => PingMode.real,
         );
         sortByPing = prefs.getBool('sortByPing') ?? false;
         pingProxyTimeoutSec = prefs.getInt('pingProxyTimeoutSec') ?? 5;
-        pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? true;
+        pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? false;
         pingBypassRouting = prefs.getBool('pingBypassRouting') ?? false;
         pingTestUrl = prefs.getString('pingTestUrl') ?? kDefaultPingUrl;
         servers = loadedServers;
@@ -2111,45 +2097,6 @@ class _MainShellState extends State<MainShell> {
 
   // ------------------------------------------------------------------ سیستم پینگ
 
-  // TCP: میانهٔ ۳ handshake واقعی TCP به IP/Port سرور (بدون DNS)
-  Future<int> _measureTcp(ServerItem server) async {
-    final endpoint = extractServerEndpoint(server.fullJsonConfig);
-    if (endpoint == null) return -1;
-
-    try {
-      final addresses = await InternetAddress.lookup(endpoint.host)
-          .timeout(const Duration(seconds: 4));
-      if (addresses.isEmpty) return -1;
-
-      final samples = <int>[];
-      for (var i = 0; i < 3; i++) {
-        Socket? socket;
-        try {
-          final stopwatch = Stopwatch()..start();
-          socket = await Socket.connect(
-            addresses.first,
-            endpoint.port,
-            timeout: const Duration(seconds: 4),
-          );
-          stopwatch.stop();
-          samples.add(stopwatch.elapsedMilliseconds);
-        } catch (_) {
-          // یک نمونهٔ ناموفق، بقیه را بی‌اعتبار نمی‌کند.
-        } finally {
-          socket?.destroy();
-        }
-        if (i < 2) {
-          await Future.delayed(const Duration(milliseconds: 120));
-        }
-      }
-      if (samples.isEmpty) return -1;
-      samples.sort();
-      return samples[samples.length ~/ 2];
-    } catch (_) {
-      return -1;
-    }
-  }
-
   // Via Proxy: درخواست HTTP به آدرس تست، از داخل تونل/پروکسی سرور انجام می‌شود.
   // اگر «دو درخواست» فعال باشد، بهترین نتیجه از دو اجرا انتخاب می‌شود.
   Future<int> _measureViaProxy(ServerItem server) async {
@@ -2189,14 +2136,7 @@ class _MainShellState extends State<MainShell> {
 
     var result = -1;
     try {
-      switch (testMode) {
-        case PingMode.tcp:
-          result = await _measureTcp(server);
-          break;
-        case PingMode.real:
-          result = await _measureViaProxy(server);
-          break;
-      }
+      result = await _measureViaProxy(server);
     } catch (_) {
       result = -1;
     } finally {
@@ -2220,8 +2160,8 @@ class _MainShellState extends State<MainShell> {
 
     try {
       // حالت‌های via proxy منابع هسته را اشغال می‌کنند، پس یکی‌یکی اجرا می‌شوند
-      final isProxyMode = mode == PingMode.real;
-      final int batchSize = isProxyMode ? 1 : 4;
+      // Real Ping از هستهٔ مشترک استفاده می‌کند، پس یکی‌یکی اجرا می‌شود
+      const int batchSize = 1;
       for (var i = 0; i < list.length; i += batchSize) {
         if (!mounted) break;
         final end = min(i + batchSize, list.length);
@@ -3130,7 +3070,6 @@ class _MainShellState extends State<MainShell> {
           children: [
             _buildHomeTab(),
             _buildServersTab(),
-            _buildSubscriptionsTab(),
             _buildSettingsTab(),
           ],
         ),
@@ -3151,14 +3090,6 @@ class _MainShellState extends State<MainShell> {
               ),
               selectedIcon: const Icon(Icons.dns_rounded),
               label: 'سرورها',
-            ),
-            NavigationDestination(
-              icon: Badge(
-                isLabelVisible: subscriptions.isNotEmpty,
-                label: Text('${subscriptions.length}'),
-                child: const Icon(Icons.rss_feed_rounded),
-              ),
-              label: 'اشتراک‌ها',
             ),
             const NavigationDestination(
               icon: Icon(Icons.tune_rounded),
@@ -3656,31 +3587,12 @@ class _MainShellState extends State<MainShell> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-            child: SegmentedButton<PingMode>(
-              segments: [
-                for (final m in PingMode.values)
-                  ButtonSegment(
-                    value: m,
-                    label: Text(m.label, style: const TextStyle(fontSize: 11)),
-                  ),
-              ],
-              selected: {selectedPingMode},
-              onSelectionChanged: isTestingAll
-                  ? null
-                  : (values) {
-                      setState(() => selectedPingMode = values.first);
-                      savePersistentData();
-                    },
-            ),
-          ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'Real Ping: از داخل تونل • TCP Ping: میانهٔ ۳ اتصال به سرور',
+                'Real Ping: تأخیر واقعی سرور از داخل هسته (مشابه v2rayNG)',
                 style: TextStyle(fontSize: 9, color: Colors.grey),
               ),
             ),
@@ -3711,6 +3623,29 @@ class _MainShellState extends State<MainShell> {
               ),
             ),
           ),
+          if (subscriptions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+              child: Card(
+                margin: EdgeInsets.zero,
+                child: ExpansionTile(
+                  leading: const Icon(Icons.rss_feed_rounded, size: 20),
+                  title: Text(
+                    'اشتراک‌ها (${subscriptions.length})',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.sync_rounded),
+                    tooltip: 'بروزرسانی همه',
+                    onPressed: updateAllSubscriptions,
+                  ),
+                  childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                  children: [
+                    for (final sub in subscriptions) _subscriptionTile(sub),
+                  ],
+                ),
+              ),
+            ),
           if (subscriptions.isNotEmpty || hasManual)
             SizedBox(
               height: 44,
@@ -3918,51 +3853,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  Widget _buildSubscriptionsTab() {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('مدیریت اشتراک‌ها (Subscriptions)'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.sync_rounded),
-            tooltip: 'بروزرسانی همه اشتراک‌ها',
-            onPressed: updateAllSubscriptions,
-          ),
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            tooltip: 'افزودن اشتراک',
-            onPressed: _showAddSheet,
-          ),
-        ],
-      ),
-      body: subscriptions.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.rss_feed_rounded,
-                      size: 48, color: Colors.grey),
-                  const SizedBox(height: 8),
-                  const Text('هیچ سابسکریپشنی ثبت نشده است'),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: _showAddSheet,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('افزودن لینک سابسکریپشن'),
-                  ),
-                ],
-              ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: subscriptions.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, index) =>
-                  _subscriptionTile(subscriptions[index]),
-            ),
-    );
-  }
-
   Widget _subscriptionTile(SubscriptionItem sub) {
     final details = <String>[
       '${sub.serverCount} سرور',
@@ -4094,22 +3984,18 @@ class _MainShellState extends State<MainShell> {
               const SizedBox(width: 6),
               const Text('IP', style: TextStyle(fontWeight: FontWeight.bold)),
               const Spacer(),
-              FilledButton.tonal(
-                onPressed: isCheckingIp ? null : checkIpCountry,
-                child: isCheckingIp
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Real IP'),
-              ),
+              if (isCheckingIp)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
             ],
           ),
           const SizedBox(height: 10),
           if (ipAddress.isEmpty)
             const Text(
-              'برای تشخیص کشور IP خروجی، دکمهٔ Real IP را بزنید',
+              'در حال تشخیص IP و کشور...',
               style: TextStyle(fontSize: 11, color: Colors.grey),
             )
           else ...[
@@ -4178,24 +4064,19 @@ class _MainShellState extends State<MainShell> {
           SegmentedButton<AppThemeModeSetting>(
             segments: const [
               ButtonSegment(
-                value: AppThemeModeSetting.midnight,
-                label: Text('نئون'),
-                icon: Icon(Icons.nights_stay_rounded),
+                value: AppThemeModeSetting.system,
+                label: Text('سیستم'),
+                icon: Icon(Icons.brightness_auto_rounded),
               ),
               ButtonSegment(
                 value: AppThemeModeSetting.dark,
-                label: Text('تیره'),
-                icon: Icon(Icons.dark_mode),
+                label: Text('دارک'),
+                icon: Icon(Icons.dark_mode_rounded),
               ),
               ButtonSegment(
                 value: AppThemeModeSetting.light,
                 label: Text('روشن'),
-                icon: Icon(Icons.light_mode),
-              ),
-              ButtonSegment(
-                value: AppThemeModeSetting.cream,
-                label: Text('کرم'),
-                icon: Icon(Icons.color_lens),
+                icon: Icon(Icons.light_mode_rounded),
               ),
             ],
             selected: {widget.currentTheme},
@@ -4241,66 +4122,6 @@ class _MainShellState extends State<MainShell> {
               setState(() => allowInsecureDefault = val);
               savePersistentData();
             },
-          ),
-          SwitchListTile(
-            title: const Text('حالت پروکسی محلی (SOCKS5 10808 بدون VPN)'),
-            value: isProxyOnly,
-            onChanged: (val) {
-              setState(() => isProxyOnly = val);
-              savePersistentData();
-            },
-          ),
-          const SizedBox(height: 22),
-          const Text(
-            'تنظیمات پینگ 📶',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-          ),
-          const SizedBox(height: 6),
-          const Text('مهلت پینگ via Proxy', style: TextStyle(fontSize: 13)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final sec in const [5, 15])
-                ChoiceChip(
-                  label: Text('$sec sec'),
-                  selected: pingProxyTimeoutSec == sec,
-                  onSelected: (_) {
-                    setState(() => pingProxyTimeoutSec = sec);
-                    savePersistentData();
-                  },
-                ),
-            ],
-          ),
-          SwitchListTile(
-            title: const Text('دو درخواست و انتخاب بهترین نتیجه'),
-            subtitle: const Text('فقط برای حالت‌های via Proxy'),
-            value: pingBestOfTwo,
-            onChanged: (val) {
-              setState(() => pingBestOfTwo = val);
-              savePersistentData();
-            },
-          ),
-          SwitchListTile(
-            title: const Text('بای‌پاس در پینگ پراکسی'),
-            subtitle:
-                const Text('قوانین بای‌پاس ایران و LAN هنگام پینگ اعمال شود'),
-            value: pingBypassRouting,
-            onChanged: (val) {
-              setState(() => pingBypassRouting = val);
-              savePersistentData();
-            },
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('آدرس تست پینگ'),
-            subtitle: Text(
-              pingTestUrl,
-              textDirection: TextDirection.ltr,
-              style: const TextStyle(fontSize: 11),
-            ),
-            trailing: const Icon(Icons.edit_rounded),
-            onTap: _editPingUrl,
           ),
           const SizedBox(height: 12),
           const Text(
