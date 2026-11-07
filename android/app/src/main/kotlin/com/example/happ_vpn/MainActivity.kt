@@ -119,6 +119,9 @@ class MainActivity : FlutterActivity() {
                     updateNativeState(applicationContext, connected)
                     result.success(true)
                 }
+                "getLaunchableApps" -> {
+                    result.success(getLaunchableApps())
+                }
                 "installApk" -> {
                     val path = call.argument<String>("path")
                     if (path == null) {
@@ -133,6 +136,14 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun getLaunchableApps(): List<Map<String, String>> {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return pm.queryIntentActivities(intent, 0)
+            .map { mapOf("name" to it.loadLabel(pm).toString(), "package" to it.activityInfo.packageName) }
+            .distinctBy { it["package"] }
     }
 
     private fun installApk(path: String): String {
