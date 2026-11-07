@@ -15,6 +15,9 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
 import androidx.core.content.FileProvider
+import dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayVPNService
+import dev.amirzr.flutter_v2ray_client.v2ray.services.V2rayProxyOnlyService
+import dev.amirzr.flutter_v2ray_client.v2ray.utils.AppConfigs
 
 class MainActivity : FlutterActivity() {
 
@@ -99,12 +102,41 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (handleNotificationDisconnect(intent)) return
         val filter = IntentFilter(ACTION_SILENT_TOGGLE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(silentReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(silentReceiver, filter)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleNotificationDisconnect(intent)
+    }
+
+    /**
+     * دکمهٔ «قطع» در پنل اعلان: پلاگین به‌جای سرویس قطع، Activity را باز می‌کند.
+     * اینجا فرمان قطع مستقیم به سرویس VPN داده می‌شود و برنامه نمایش داده نمی‌شود.
+     */
+    private fun handleNotificationDisconnect(intent: Intent?): Boolean {
+        if (intent?.action != "FROM_DISCONNECT_BTN") return false
+
+        val stopVpn = Intent(this, V2rayVPNService::class.java)
+            .putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE)
+        val stopProxy = Intent(this, V2rayProxyOnlyService::class.java)
+            .putExtra("COMMAND", AppConfigs.V2RAY_SERVICE_COMMANDS.STOP_SERVICE)
+        try { startService(stopVpn) } catch (_: Exception) {}
+        try { startService(stopProxy) } catch (_: Exception) {}
+
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_CONNECTED, false).apply()
+
+        // برنامه باز نشود: فقط به پس‌زمینه برو و Activity را ببند
+        moveTaskToBack(true)
+        finish()
+        return true
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
