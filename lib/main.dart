@@ -6,6 +6,9 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 typedef JsonMap = Map<String, dynamic>;
@@ -43,6 +46,128 @@ void main() async {
 
 // نقطه ورود پس‌زمینه برای ویجت و Quick Settings بدون باز شدن صفحه برنامه
 @pragma('vm:entry-point')
+
+bool isNewerVersion(String remote, String local) {
+  List<int> parts(String v) => v
+      .replaceAll(RegExp(r'[^0-9.]'), '')
+      .split('.')
+      .map((e) => int.tryParse(e) ?? 0)
+      .toList();
+  final a = parts(remote);
+  final b = parts(local);
+  for (var i = 0; i < 3; i++) {
+    final x = i < a.length ? a[i] : 0;
+    final y = i < b.length ? b[i] : 0;
+    if (x != y) return x > y;
+  }
+  return false;
+}
+
+Future<Map<String, String>?> fetchLatestReleaseInfo() async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
+  try {
+    final req = await client.getUrl(
+      Uri.parse('https://api.github.com/repos/$kUpdateRepo/releases/latest'),
+    );
+    req.headers.set('User-Agent', 'SHIN-Updater');
+    req.headers.set('Accept', 'application/vnd.github+json');
+    final resp = await req.close().timeout(const Duration(seconds: 15));
+    final body = await utf8.decoder.bind(resp).join();
+    final data = jsonDecode(body);
+    if (data is! Map) return null;
+
+    final tag = (data['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^v'), '');
+    var apk = '';
+    var fallback = '';
+    final assets = data['assets'];
+    if (assets is List) {
+      for (final a in assets) {
+        if (a is! Map) continue;
+        final name = (a['name'] ?? '').toString();
+        if (!name.endsWith('.apk')) continue;
+        final url = (a['browser_download_url'] ?? '').toString();
+        if (name.contains('arm64')) {
+          apk = url;
+          break;
+        }
+        if (fallback.isEmpty) fallback = url;
+      }
+    }
+    return {
+      'tag': tag,
+      'notes': (data['body'] ?? '').toString(),
+      'apk': apk.isEmpty ? fallback : apk,
+    };
+  } catch (_) {
+    return null;
+  } finally {
+    client.close(force: true);
+  }
+}
+
+class UpdateNotifier {
+  static final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
+
+  static Future<void> init() async {
+    await _plugin.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+    );
+  }
+
+  static Future<void> requestPermission() async {
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+  }
+
+  static Future<void> showNewVersion(String version) async {
+    await _plugin.show(
+      7001,
+      'نسخهٔ جدید SHIN ($version)',
+      'برای دانلود و نصب، برنامه را باز کنید.',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'shin_updates',
+          'بروزرسانی برنامه',
+          channelDescription: 'اطلاع از نسخهٔ جدید SHIN',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> runBackgroundUpdateCheck() async {
+  final info = await fetchLatestReleaseInfo();
+  if (info == null) return;
+  final tag = info['tag'] ?? '';
+  if (tag.isEmpty || !isNewerVersion(tag, kAppVersion)) return;
+
+  final prefs = await SharedPreferences.getInstance();
+  // برای هر نسخه فقط یک بار اعلان بده
+  if (prefs.getString('notified_update_tag') == tag) return;
+
+  await UpdateNotifier.init();
+  await UpdateNotifier.showNewVersion(tag);
+  await prefs.setString('notified_update_tag', tag);
+}
+
+@pragma('vm:entry-point')
+void shinUpdateDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    try {
+      WidgetsFlutterBinding.ensureInitialized();
+      await runBackgroundUpdateCheck();
+    } catch (_) {}
+    return true;
+  });
+}
+
 Future<void> vpnBackgroundMain() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
@@ -94,12 +219,15 @@ Future<void> vpnBackgroundMain() async {
 //  ثابت‌ها و تنظیمات پایه
 // ---------------------------------------------------------------------------
 
-const String kAppVersion = '4.11.0';
+const String kAppVersion = '1.00.0';
+
+// مخزن گیت‌هاب برای بررسی بروزرسانی: نام کاربری/نام مخزن خود را بگذارید
+const String kUpdateRepo = 'OWNER/REPO';
 
 const List<String> kUserAgents = [
-  'SHIN/4.11.0 (Android; Xray/26.10.31)',
+  'SHIN/1.00.0 (Android; Xray/26.10.31)',
   'v2rayNG/1.9.12',
-  'SHIN/4.11.0 (Android)',
+  'SHIN/1.00.0 (Android)',
 ];
 
 const List<String> kDnsOptions = [
@@ -1547,6 +1675,8 @@ class _MainShellState extends State<MainShell> {
 
   bool isProxyOnly = false;
   bool lowPowerMode = false;
+  final Set<String> _sortedGroups = <String>{};
+  final Set<String> _testingGroups = <String>{};
   final Set<String> _collapsedGroups = <String>{};
   bool bypassLan = true;
   bool bypassIran = true;
@@ -1555,8 +1685,11 @@ class _MainShellState extends State<MainShell> {
   bool autoUpdateSubs = true;
   String selectedDns = '1.1.1.1';
   String hwid = '';
-  String updateRepoUrl =
-      'https://api.github.com/repos/Happ-proxy/happ-android/releases/latest';
+  String updateRepoUrl = 'https://api.github.com/repos/$kUpdateRepo/releases/latest';
+  String availableVersion = '';
+  String availableApkUrl = '';
+  String availableChangelog = '';
+  double? downloadProgress;
 
   bool get isConnected => v2rayStatus.state == 'CONNECTED';
   bool get isConnecting => v2rayStatus.state == 'CONNECTING';
@@ -1611,6 +1744,23 @@ class _MainShellState extends State<MainShell> {
     await _consumePendingQuickAction();
     _autoUpdateOldSubscriptions();
     await _maybeShowOnboarding();
+    unawaited(checkForAppUpdate(silent: true));
+    unawaited(_setupBackgroundUpdates());
+  }
+
+  Future<void> _setupBackgroundUpdates() async {
+    try {
+      await UpdateNotifier.init();
+      await UpdateNotifier.requestPermission();
+      await Workmanager().initialize(shinUpdateDispatcher, isInDebugMode: false);
+      await Workmanager().registerPeriodicTask(
+        'shin-update-check',
+        'shinUpdateCheck',
+        frequency: const Duration(hours: 12),
+        constraints: Constraints(networkType: NetworkType.connected),
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      );
+    } catch (_) {}
   }
 
   Future<void> _maybeShowOnboarding() async {
@@ -1882,7 +2032,7 @@ class _MainShellState extends State<MainShell> {
         allowInsecureDefault = prefs.getBool('allowInsecureDefault') ?? false;
         autoUpdateSubs = prefs.getBool('autoUpdateSubs') ?? true;
         selectedDns = prefs.getString('selectedDns') ?? '1.1.1.1';
-        updateRepoUrl = prefs.getString('updateRepoUrl') ?? updateRepoUrl;
+        updateRepoUrl = 'https://api.github.com/repos/$kUpdateRepo/releases/latest';
         selectedPingMode = PingMode.values.firstWhere(
           (mode) => mode.name == prefs.getString('pingMode'),
           orElse: () => PingMode.real,
@@ -2193,10 +2343,30 @@ class _MainShellState extends State<MainShell> {
 
   // Via Proxy: درخواست HTTP به آدرس تست، از داخل تونل/پروکسی سرور انجام می‌شود.
   // اگر «دو درخواست» فعال باشد، بهترین نتیجه از دو اجرا انتخاب می‌شود.
+  Future<int> _measureThroughTunnel() async {
+    final client = HttpClient()
+      ..connectionTimeout = Duration(seconds: pingProxyTimeoutSec);
+    try {
+      final timeout = Duration(seconds: pingProxyTimeoutSec);
+      final sw = Stopwatch()..start();
+      final req = await client.getUrl(Uri.parse(pingTestUrl)).timeout(timeout);
+      final resp = await req.close().timeout(timeout);
+      sw.stop();
+      await resp.drain<void>();
+      return sw.elapsedMilliseconds;
+    } catch (_) {
+      return -1;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Future<int> _measureViaProxy(ServerItem server) async {
     if (isConnected) {
-      // وقتی وصلیم، فقط سرور فعال را با هستهٔ در حال اجرا تست می‌کنیم
+      // وقتی وصلیم، فقط سرور فعال تست می‌شود؛ درخواست از داخل تونل می‌رود
       if (server.id != selectedServerId) return -1;
+      final viaTunnel = await _measureThroughTunnel();
+      if (viaTunnel > 0) return viaTunnel;
       try {
         final ms = await flutterV2ray
             .getConnectedServerDelay(url: pingTestUrl)
@@ -2349,95 +2519,208 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  Future<void> checkForAppUpdate() async {
+  List<int> _verParts(String v) {
+    return v
+        .replaceAll(RegExp(r'[^0-9.]'), '')
+        .split('.')
+        .map((e) => int.tryParse(e) ?? 0)
+        .toList();
+  }
+
+  bool _isNewer(String remote, String local) {
+    final a = _verParts(remote);
+    final b = _verParts(local);
+    for (var i = 0; i < 3; i++) {
+      final x = i < a.length ? a[i] : 0;
+      final y = i < b.length ? b[i] : 0;
+      if (x != y) return x > y;
+    }
+    return false;
+  }
+
+  Future<void> checkForAppUpdate({bool silent = false}) async {
     if (isCheckingUpdate) return;
     setState(() => isCheckingUpdate = true);
-    showSnack('در حال بررسی بروزرسانی برنامه...');
 
-    final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 12);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
     try {
       final req = await client.getUrl(Uri.parse(updateRepoUrl.trim()));
       req.headers.set('User-Agent', 'SHIN-Updater');
+      req.headers.set('Accept', 'application/vnd.github+json');
       final resp = await req.close().timeout(const Duration(seconds: 15));
       final body = await utf8.decoder.bind(resp).join();
       final data = jsonDecode(body);
+      if (data is! Map) throw 'پاسخ نامعتبر از سرور';
 
-      String latestVer = '';
-      String downloadUrl = '';
-      String changelog = '';
+      final tag = (data['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^v'), '');
+      final notes = (data['body'] ?? '').toString();
 
-      if (data is Map) {
-        if (data.containsKey('tag_name')) {
-          latestVer = (data['tag_name'] ?? '').toString().replaceAll('v', '');
-          changelog =
-              (data['body'] ?? 'بروزرسانی جدید در دسترس است.').toString();
-          final assets = data['assets'];
-          if (assets is List && assets.isNotEmpty) {
-            for (final a in assets) {
-              if (a is Map && (a['name'] ?? '').toString().endsWith('.apk')) {
-                downloadUrl = (a['browser_download_url'] ?? '').toString();
-                break;
-              }
-            }
+      // اگر چند APK وجود داشت، نسخهٔ arm64 ترجیح داده می‌شود
+      var apk = '';
+      final assets = data['assets'];
+      if (assets is List) {
+        var fallback = '';
+        for (final a in assets) {
+          if (a is! Map) continue;
+          final name = (a['name'] ?? '').toString();
+          if (!name.endsWith('.apk')) continue;
+          final url = (a['browser_download_url'] ?? '').toString();
+          if (name.contains('arm64')) {
+            apk = url;
+            break;
           }
-        } else if (data.containsKey('data')) {
-          latestVer = (data['data'] ?? '').toString();
-          downloadUrl = (data['link'] ?? '').toString();
-          changelog = (data['details'] ?? '').toString();
+          if (fallback.isEmpty) fallback = url;
         }
+        if (apk.isEmpty) apk = fallback;
       }
 
       if (!mounted) return;
-      _infoSheet(
-        icon: Icons.system_update_rounded,
-        color: const Color(0xFF3B82F6),
-        title: 'بروزرسانی SHIN',
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _kv('نسخهٔ فعلی', kAppVersion),
-            _kv('آخرین نسخه', latestVer.isEmpty ? kAppVersion : latestVer),
-            if (changelog.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              const Text('تغییرات نسخهٔ جدید',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-              const SizedBox(height: 6),
-              Container(
-                constraints: const BoxConstraints(maxHeight: 220),
-                child: SingleChildScrollView(
-                  child: Text(changelog,
-                      style: const TextStyle(fontSize: 12, height: 1.6)),
-                ),
-              ),
-            ],
-          ],
-        ),
-        actions: (ctx) => [
-          OutlinedButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('بستن'),
-          ),
-          if (downloadUrl.isNotEmpty)
-            FilledButton.icon(
-              icon: const Icon(Icons.download_rounded),
-              label: const Text('کپی لینک APK'),
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: downloadUrl));
-                Navigator.pop(ctx);
-                showSnack('لینک دانلود کپی شد؛ در مرورگر باز کنید');
-              },
-            ),
-        ],
-      );
-    } catch (e) {
-      showSnack('خطا در بررسی آپدیت: $e');
+      final newer = tag.isNotEmpty && _isNewer(tag, kAppVersion);
+      setState(() {
+        availableVersion = newer ? tag : '';
+        availableApkUrl = apk;
+        availableChangelog = notes;
+      });
+
+      if (!silent) {
+        if (newer) {
+          _showUpdateSheet();
+        } else {
+          showSnack('برنامه به‌روز است ($kAppVersion)');
+        }
+      }
+    } catch (_) {
+      if (!silent) showSnack('بررسی بروزرسانی ناموفق بود');
     } finally {
       client.close(force: true);
       if (mounted) setState(() => isCheckingUpdate = false);
     }
   }
+
+  void _showUpdateSheet() {
+    _infoSheet(
+      icon: Icons.system_update_rounded,
+      color: const Color(0xFF4F7CFF),
+      title: 'نسخهٔ جدید $availableVersion',
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _kv('نسخهٔ فعلی', kAppVersion),
+          if (availableChangelog.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: SingleChildScrollView(
+                child: Text(
+                  availableChangelog,
+                  style: const TextStyle(fontSize: 12, height: 1.6),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: (ctx) => [
+        OutlinedButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('بعداً'),
+        ),
+        FilledButton.icon(
+          icon: const Icon(Icons.download_rounded),
+          label: const Text('دانلود و نصب'),
+          onPressed: () {
+            Navigator.pop(ctx);
+            _downloadAndInstall();
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _downloadAndInstall() async {
+    if (availableApkUrl.isEmpty) {
+      showSnack('فایل نصبی این نسخه پیدا نشد');
+      return;
+    }
+    setState(() => downloadProgress = 0);
+    final client = HttpClient();
+    try {
+      final dir = Directory('${(await getTemporaryDirectory()).path}/updates');
+      await dir.create(recursive: true);
+      final file = File('${dir.path}/shin-update.apk');
+
+      final req = await client.getUrl(Uri.parse(availableApkUrl));
+      req.followRedirects = true;
+      req.maxRedirects = 5;
+      final resp = await req.close();
+      final total = resp.contentLength;
+      var received = 0;
+      final sink = file.openWrite();
+      await for (final chunk in resp) {
+        sink.add(chunk);
+        received += chunk.length;
+        if (total > 0 && mounted) {
+          setState(() => downloadProgress = received / total);
+        }
+      }
+      await sink.close();
+
+      final result = await kQuickControlsChannel
+          .invokeMethod<String>('installApk', {'path': file.path});
+      if (result == 'permission') {
+        showSnack('اجازهٔ نصب از این منبع را بدهید و دوباره تلاش کنید');
+      }
+    } catch (e) {
+      showSnack('دانلود ناموفق بود: $e');
+    } finally {
+      client.close(force: true);
+      if (mounted) setState(() => downloadProgress = null);
+    }
+  }
+
+  Widget _updateBanner() {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'نسخهٔ جدید $availableVersion موجود است',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          if (downloadProgress != null)
+            LinearProgressIndicator(
+              value: downloadProgress == 0 ? null : downloadProgress,
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _downloadAndInstall,
+                    child: const Text('دانلود و نصب'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => setState(() => availableVersion = ''),
+                  child: const Text('بعداً'),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
 
   // ------------------------------------------------------------------ آپدیت سابسکریپشن
 
@@ -3690,25 +3973,6 @@ class _MainShellState extends State<MainShell> {
           ),
         ),
         IconButton(
-          icon: isTestingAll
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.speed_rounded),
-          tooltip: 'تست پینگ',
-          onPressed: isTestingAll ? null : testAllPings,
-        ),
-        IconButton(
-          icon: Icon(sortByPing ? Icons.sort_rounded : Icons.swap_vert_rounded),
-          tooltip: 'مرتب‌سازی بر اساس پینگ',
-          onPressed: () {
-            setState(() => sortByPing = !sortByPing);
-            savePersistentData();
-          },
-        ),
-        IconButton(
           icon: const Icon(Icons.settings_rounded),
           tooltip: 'تنظیمات',
           onPressed: _openSettings,
@@ -3717,8 +3981,8 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  List<ServerItem> _orderServers(List<ServerItem> list) {
-    if (!sortByPing) return list;
+  List<ServerItem> _orderServers(List<ServerItem> list, {bool sort = true}) {
+    if (!sort) return list;
     int rank(ServerItem s) {
       final p = s.pingFor(PingMode.real);
       if (p == null) return 2;
@@ -3776,69 +4040,117 @@ class _MainShellState extends State<MainShell> {
     required List<ServerItem> servers,
   }) {
     final collapsed = _collapsedGroups.contains(id);
+    final sorted = _sortedGroups.contains(id);
+    final testing = _testingGroups.contains(id);
     final scheme = Theme.of(context).colorScheme;
+    final divider = Theme.of(context).dividerColor;
+    final used = sub?.usedBytes ?? 0;
+    final total = sub?.totalBytes ?? 0;
+    final unlimited = total <= 0;
+    final ratio = unlimited ? 1.0 : (used / total).clamp(0.0, 1.0).toDouble();
+    String expiry = 'بدون انقضا';
+    if (sub != null && sub.expireSec > 0) {
+      final days = DateTime.fromMillisecondsSinceEpoch(sub.expireSec * 1000)
+          .difference(DateTime.now())
+          .inDays;
+      expiry = days >= 0 ? '$days روز مانده' : 'منقضی شده';
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () {
-              setState(() {
-                if (collapsed) {
-                  _collapsedGroups.remove(id);
-                } else {
-                  _collapsedGroups.add(id);
-                }
-              });
-            },
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(2, 6, 0, 6),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: divider),
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 4, 4),
               child: Row(
                 children: [
-                  Icon(
-                    collapsed
-                        ? Icons.chevron_left_rounded
-                        : Icons.expand_more_rounded,
-                    size: 20,
-                    color: Colors.grey,
-                  ),
-                  const SizedBox(width: 4),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          if (collapsed) {
+                            _collapsedGroups.remove(id);
+                          } else {
+                            _collapsedGroups.add(id);
+                          }
+                        });
+                      },
+                      child: Row(
+                        children: [
+                          Icon(
+                            collapsed
+                                ? Icons.chevron_left_rounded
+                                : Icons.expand_more_rounded,
+                            size: 20,
+                            color: Colors.grey,
                           ),
-                        ),
-                        Text(
-                          _groupMeta(sub, servers.length),
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  ),
+                  testing
+                      ? const Padding(
+                          padding: EdgeInsets.all(10),
+                          child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconButton(
+                          tooltip: 'تست پینگ این اشتراک',
+                          icon: const Icon(Icons.speed_rounded, size: 20),
+                          onPressed: () => testGroupPings(id, servers),
+                        ),
+                  IconButton(
+                    tooltip: sorted ? 'حذف مرتب‌سازی' : 'مرتب‌سازی بر اساس پینگ',
+                    icon: Icon(
+                      sorted ? Icons.sort_rounded : Icons.swap_vert_rounded,
+                      size: 20,
+                      color: sorted ? scheme.primary : null,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        if (sorted) {
+                          _sortedGroups.remove(id);
+                        } else {
+                          _sortedGroups.add(id);
+                        }
+                      });
+                    },
                   ),
                   if (sub != null) ...[
                     sub.isUpdating
                         ? const Padding(
-                            padding: EdgeInsets.all(12),
+                            padding: EdgeInsets.all(10),
                             child: SizedBox(
-                              width: 18,
-                              height: 18,
+                              width: 16,
+                              height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           )
                         : IconButton(
+                            tooltip: 'بروزرسانی اشتراک',
                             icon: const Icon(Icons.refresh_rounded, size: 20),
-                            tooltip: 'بروزرسانی',
                             onPressed: () => updateSubscription(sub),
                           ),
                     PopupMenuButton<String>(
@@ -3860,30 +4172,93 @@ class _MainShellState extends State<MainShell> {
                 ],
               ),
             ),
-          ),
-          if (sub != null && sub.totalBytes > 0 && !collapsed) ...[
-            const SizedBox(height: 4),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: LinearProgressIndicator(
-                value: (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0).toDouble(),
-                minHeight: 5,
-                color: scheme.primary,
-                backgroundColor: scheme.primary.withOpacity(0.12),
+            // اطلاعات از چپ به راست: حجم ← نوار ← انقضا، سپس تعداد و زمان بروزرسانی
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          unlimited
+                              ? 'نامحدود'
+                              : '${_fmtBytes(used)} / ${_fmtBytes(total)}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: LinearProgressIndicator(
+                              value: ratio,
+                              minHeight: 6,
+                              color: ratio > 0.9 ? Colors.redAccent : scheme.primary,
+                              backgroundColor: scheme.primary.withOpacity(0.12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(expiry, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Text(
+                          '${servers.length} سرور',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        const Spacer(),
+                        if (sub != null)
+                          Text(
+                            'بروزرسانی ${fmtAgo(sub.updatedAt)}',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              '${_fmtBytes(sub.usedBytes)} / ${_fmtBytes(sub.totalBytes)}',
-              textDirection: TextDirection.ltr,
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
-            ),
-            const SizedBox(height: 8),
+            if (!collapsed) ...[
+              Divider(height: 1, color: divider),
+              for (var i = 0; i < _orderServers(servers, sort: sorted).length; i++) ...[
+                _serverTile(_orderServers(servers, sort: sorted)[i]),
+                if (i < servers.length - 1) Divider(height: 1, color: divider),
+              ],
+            ],
           ],
-          if (!collapsed) _serverBox(_orderServers(servers)),
-        ],
+        ),
       ),
     );
+  }
+
+  Future<void> testGroupPings(String id, List<ServerItem> list) async {
+    if (_testingGroups.contains(id)) return;
+    final queue = isConnected
+        ? list.where((s) => s.id == selectedServerId).toList()
+        : List<ServerItem>.from(list);
+    if (queue.isEmpty) {
+      showSnack('سروری برای تست در این بخش نیست');
+      return;
+    }
+    setState(() => _testingGroups.add(id));
+    var next = 0;
+    Future<void> worker() async {
+      while (mounted && next < queue.length) {
+        final server = queue[next++];
+        await pingSingleServer(server, save: false);
+      }
+    }
+    try {
+      final workers = min(kPingConcurrency, queue.length);
+      await Future.wait([for (var i = 0; i < workers; i++) worker()]);
+    } finally {
+      if (mounted) setState(() => _testingGroups.remove(id));
+      await savePersistentData();
+    }
   }
 
   Widget _buildHomeTab() {
@@ -3955,6 +4330,16 @@ class _MainShellState extends State<MainShell> {
                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
                   ),
                 ),
+                if (connecting)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        'لطفاً کمی صبر کنید',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ),
+                  ),
                 if (connected)
                   Center(
                     child: Padding(
@@ -3991,6 +4376,7 @@ class _MainShellState extends State<MainShell> {
                     ),
                   ),
                 ],
+                if (availableVersion.isNotEmpty) _updateBanner(),
                 const SizedBox(height: 24),
                 if (servers.isEmpty)
                   _emptyState(
@@ -4711,7 +5097,7 @@ class _MainShellState extends State<MainShell> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : null,
-              onTap: checkForAppUpdate,
+              onTap: () => checkForAppUpdate(),
             ),
             _settingsTile(
               icon: Icons.memory_rounded,
@@ -4788,40 +5174,43 @@ class _PowerButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final card = Theme.of(context).cardColor;
+    final ringColor = connected ? accent : accent.withOpacity(0.35);
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: lowPower ? Duration.zero : const Duration(milliseconds: 300),
-        width: 200,
-        height: 200,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: card,
-          border: Border.all(color: accent.withOpacity(0.35), width: 2),
-        ),
-        child: Center(
-          child: AnimatedContainer(
-            duration: lowPower ? Duration.zero : const Duration(milliseconds: 300),
-            width: 150,
-            height: 150,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: connected ? accent.withOpacity(0.12) : Colors.transparent,
+      child: SizedBox(
+        width: 220,
+        height: 220,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (connecting)
+              const SizedBox(
+                width: 220,
+                height: 220,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+            AnimatedContainer(
+              duration: lowPower ? Duration.zero : const Duration(milliseconds: 300),
+              width: 190,
+              height: 190,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: card,
+                border: Border.all(color: ringColor, width: 2),
+              ),
+              child: Center(
+                child: Text(
+                  'S',
+                  style: TextStyle(
+                    fontSize: 84,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                    color: connected ? accent : Colors.grey,
+                  ),
+                ),
+              ),
             ),
-            child: Center(
-              child: connecting
-                  ? SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: CircularProgressIndicator(strokeWidth: 2.5, color: accent),
-                    )
-                  : Icon(
-                      Icons.power_settings_new_rounded,
-                      size: 64,
-                      color: connected ? accent : Colors.grey,
-                    ),
-            ),
-          ),
+          ],
         ),
       ),
     );
