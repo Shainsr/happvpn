@@ -70,6 +70,13 @@ Future<void> vpnBackgroundMain() async {
       notificationIconResourceName: 'ic_launcher',
     );
     if (isConnected) {
+      await prefs.setBool('bg_vpn_connected', false);
+      try {
+        await kQuickControlsChannel.invokeMethod('setConnectionState', {
+          'connected': false,
+          'status': 'DISCONNECTED',
+        });
+      } catch (_) {}
       await v2ray.stopV2Ray();
     } else if (config.isNotEmpty) {
       await v2ray.startV2Ray(
@@ -1572,12 +1579,7 @@ class _MainShellState extends State<MainShell> {
         unawaited(
           _syncNativeConnectionState(status.state == 'CONNECTED', status.state),
         );
-        if (status.state == 'CONNECTED') {
-          // کمی صبر تا تونل کاملاً بالا بیاید، سپس IP خروجی تشخیص داده شود
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted && isConnected) checkIpCountry();
-          });
-        } else if (status.state == 'DISCONNECTED' && mounted) {
+        if (status.state == 'DISCONNECTED' && mounted) {
           setState(() {
             ipAddress = '';
             ipCountryCode = '';
@@ -2111,6 +2113,8 @@ class _MainShellState extends State<MainShell> {
     if (mounted) {
       setState(() => v2rayStatus = V2RayStatus(state: 'DISCONNECTING'));
     }
+    // کاشی Quick Settings همان لحظه خاموش شود، نه بعد از انتظار برای هسته
+    unawaited(_syncNativeConnectionState(false, 'DISCONNECTING'));
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         await flutterV2ray.stopV2Ray();
@@ -3730,6 +3734,26 @@ class _MainShellState extends State<MainShell> {
     return copy;
   }
 
+  Widget _serverBox(List<ServerItem> list) {
+    final divider = Theme.of(context).dividerColor;
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: divider),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < list.length; i++) ...[
+            _serverTile(list[i]),
+            if (i < list.length - 1) Divider(height: 1, color: divider),
+          ],
+        ],
+      ),
+    );
+  }
+
   String _groupMeta(SubscriptionItem? sub, int count) {
     if (sub == null) return '$count سرور';
     final parts = <String>[
@@ -3856,12 +3880,7 @@ class _MainShellState extends State<MainShell> {
             ),
             const SizedBox(height: 8),
           ],
-          if (!collapsed)
-            for (final server in _orderServers(servers))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _serverTile(server),
-              ),
+          if (!collapsed) _serverBox(_orderServers(servers)),
         ],
       ),
     );
@@ -3950,6 +3969,27 @@ class _MainShellState extends State<MainShell> {
                 if (connected) ...[
                   const SizedBox(height: 14),
                   _speedRow(),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: active == null || active.isPinging
+                          ? null
+                          : () => pingSingleServer(active, mode: PingMode.real),
+                      icon: const Icon(Icons.speed_rounded, size: 18),
+                      label: Text(
+                        active == null
+                            ? 'پینگ سرور فعال'
+                            : active.isPinging
+                                ? 'در حال تست...'
+                                : active.pingFor(PingMode.real) == null
+                                    ? 'تست پینگ سرور فعال'
+                                    : active.pingFor(PingMode.real)! <= 0
+                                        ? 'پینگ: خطا'
+                                        : 'پینگ: ${active.pingFor(PingMode.real)} ms',
+                        textDirection: TextDirection.ltr,
+                      ),
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 24),
                 if (servers.isEmpty)
@@ -3962,7 +4002,6 @@ class _MainShellState extends State<MainShell> {
                   )
                 else
                   ...sections,
-                if (ipAddress.isNotEmpty || isCheckingIp) _buildIpCard(),
               ],
             ),
           ),
@@ -4167,35 +4206,32 @@ class _MainShellState extends State<MainShell> {
   }
 
   // آیتم سرور با فونت ۲ سایز کوچک‌تر (مورد ۴)
+  Color _pingTone(int? ping) {
+    if (ping == null) return Colors.grey;
+    if (ping <= 0) return const Color(0xFFFF5252);
+    if (ping <= 200) return const Color(0xFF22C55E);
+    if (ping <= 400) return const Color(0xFFFFA726);
+    return const Color(0xFFFF5252);
+  }
+
   Widget _serverTile(ServerItem server) {
     final isSelected = server.id == selectedServerId;
     final ping = server.pingFor(PingMode.real);
-    final isGood = ping != null && ping > 0 && ping <= 250;
-    final scheme = Theme.of(context).colorScheme;
-    final bg = isGood
-        ? const Color(0xFF22C55E).withOpacity(0.14)
-        : Theme.of(context).cardColor;
+    final tone = _pingTone(ping);
+    final accent = Theme.of(context).colorScheme.primary;
+    final busy = server.busyPings.contains(PingMode.real.name);
 
     return Material(
-      color: bg,
-      borderRadius: BorderRadius.circular(16),
+      color: isSelected ? accent.withOpacity(0.08) : Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
         onLongPress: () => _showServerSheet(server),
         onTap: () async {
           setState(() => selectedServerId = server.id);
           await savePersistentData();
           await reconnectIfNeeded();
         },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isSelected ? scheme.primary : Colors.transparent,
-              width: 1.5,
-            ),
-          ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
           child: Row(
             children: [
               Expanded(
@@ -4220,20 +4256,27 @@ class _MainShellState extends State<MainShell> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                ping == null ? '—' : (ping <= 0 ? 'خطا' : '$ping ms'),
-                textDirection: TextDirection.ltr,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: ping == null ? Colors.grey : (ping <= 0 ? Colors.redAccent : null),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  border: Border.all(color: tone, width: 1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  ping == null ? '—' : (ping <= 0 ? 'خطا' : '$ping ms'),
+                  textDirection: TextDirection.ltr,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: tone,
+                  ),
                 ),
               ),
               IconButton(
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                constraints: const BoxConstraints.tightFor(width: 36, height: 36),
                 tooltip: 'تست پینگ این سرور',
-                icon: server.busyPings.contains(PingMode.real.name)
+                icon: busy
                     ? const SizedBox(
                         width: 16,
                         height: 16,
