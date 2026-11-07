@@ -1554,7 +1554,7 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
 
   ThemeData _buildTheme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0E1015) : const Color(0xFFF4F5F7);
+    final bg = isDark ? const Color(0xFF0E1015) : const Color(0xFFEDEDEF);
     final card = isDark ? const Color(0xFF181B22) : const Color(0xFFFFFFFF);
     final text = isDark ? const Color(0xFFF2F4F8) : const Color(0xFF14171F);
     const accent = Color(0xFF4F7CFF);
