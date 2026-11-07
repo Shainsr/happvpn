@@ -153,6 +153,15 @@ jobs:
       - name: Build Universal Release APK
         run: flutter build apk --release
 
+      - name: Verify APK signatures (fails the build if an APK is unsigned/invalid)
+        run: |
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          echo "Using $APKSIGNER"
+          for f in build/app/outputs/flutter-apk/*.apk; do
+            echo "== $f"
+            "$APKSIGNER" verify --verbose --print-certs "$f"
+          done
+
       - name: Upload APKs as artifact
         uses: actions/upload-artifact@v4
         with:
