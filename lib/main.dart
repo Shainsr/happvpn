@@ -2147,34 +2147,35 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  // تعداد تست‌های همزمان Real Ping. اگر هسته در اجرای همزمان خطا داد، این عدد را ۱ کن.
+  static const int kPingConcurrency = 8;
+
   Future<void> testAllPings() async {
     if (isTestingAll || servers.isEmpty) return;
     final mode = selectedPingMode;
-    final list = List<ServerItem>.from(filteredServers);
+    final queue = List<ServerItem>.from(filteredServers);
+    if (queue.isEmpty) return;
 
     setState(() {
       isTestingAll = true;
       pingTestsCompleted = 0;
-      pingTestsTotal = list.length;
+      pingTestsTotal = queue.length;
     });
 
-    try {
-      // حالت‌های via proxy منابع هسته را اشغال می‌کنند، پس یکی‌یکی اجرا می‌شوند
-      // Real Ping از هستهٔ مشترک استفاده می‌کند، پس یکی‌یکی اجرا می‌شود
-      const int batchSize = 1;
-      for (var i = 0; i < list.length; i += batchSize) {
-        if (!mounted) break;
-        final end = min(i + batchSize, list.length);
-        final batch = list.sublist(i, end);
-        await Future.wait(
-          batch.map((server) async {
-            await pingSingleServer(server, mode: mode, save: false);
-            if (mounted) {
-              setState(() => pingTestsCompleted++);
-            }
-          }),
-        );
+    // استخر کارگرها: هر کارگر به محض پایان یک سرور، سرور بعدی را برمی‌دارد
+    // و سرورهای کند باعث معطلی بقیه نمی‌شوند.
+    var next = 0;
+    Future<void> worker() async {
+      while (mounted && next < queue.length) {
+        final server = queue[next++];
+        await pingSingleServer(server, mode: mode, save: false);
+        if (mounted) setState(() => pingTestsCompleted++);
       }
+    }
+
+    try {
+      final workers = min(kPingConcurrency, queue.length);
+      await Future.wait([for (var i = 0; i < workers; i++) worker()]);
     } finally {
       if (mounted) setState(() => isTestingAll = false);
       await savePersistentData();
@@ -3080,7 +3081,7 @@ class _MainShellState extends State<MainShell> {
             const NavigationDestination(
               icon: Icon(Icons.shield_outlined),
               selectedIcon: Icon(Icons.shield_rounded),
-              label: 'اتصال',
+              label: 'Home',
             ),
             NavigationDestination(
               icon: Badge(
@@ -3089,455 +3090,258 @@ class _MainShellState extends State<MainShell> {
                 child: const Icon(Icons.dns_outlined),
               ),
               selectedIcon: const Icon(Icons.dns_rounded),
-              label: 'سرورها',
+              label: 'Servers',
             ),
             const NavigationDestination(
               icon: Icon(Icons.tune_rounded),
-              label: 'تنظیمات',
+              label: 'Settings',
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _autoSelectBestServer() async {
+    List<ServerItem> rankable() => servers
+        .where((s) => (s.pingFor(PingMode.real) ?? 0) > 0)
+        .toList()
+      ..sort((a, b) =>
+          a.pingFor(PingMode.real)!.compareTo(b.pingFor(PingMode.real)!));
+
+    var candidates = rankable();
+    if (candidates.isEmpty) {
+      await testAllPings();
+      candidates = rankable();
+    }
+    if (candidates.isEmpty) {
+      showSnack('هیچ سرور سالمی پیدا نشد');
+      return;
+    }
+    setState(() => selectedServerId = candidates.first.id);
+    await savePersistentData();
+    showSnack('بهترین سرور: ${candidates.first.remark}');
+  }
+
+  Widget _homeCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    String? subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Icon(icon, color: iconColor),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    if (subtitle != null)
+                      Text(subtitle,
+                          style:
+                              const TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _serverRow(ServerItem s) {
+    final selected = s.id == selectedServerId;
+    final ping = s.pingFor(PingMode.real);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: selected
+            ? Border.all(color: const Color(0xFF3B82F6), width: 1.2)
+            : null,
+      ),
+      child: ListTile(
+        onTap: () {
+          setState(() => selectedServerId = s.id);
+          savePersistentData();
+        },
+        title: Text(
+          s.remark,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 14),
+        ),
+        subtitle: Text(s.protocol,
+            style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        trailing: ping == null
+            ? const Text('—', style: TextStyle(color: Colors.grey))
+            : Text(
+                ping <= 0 ? 'Error' : '$ping ms',
+                textDirection: TextDirection.ltr,
+                style: TextStyle(
+                  color: pingColor(ping),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
       ),
     );
   }
 
   Widget _buildHomeTab() {
-    final activeServer = selectedServer;
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    final activeColor = isConnected
-        ? const Color(0xFF10B981)
-        : isConnecting
-            ? const Color(0xFFF59E0B)
-            : primaryColor;
-
-    final statusText = isConnected
-        ? 'متصل و ایمن با هسته Xray'
-        : isConnecting
-            ? 'در حال مذاکره و اتصال...'
-            : 'آماده برقراری اتصال';
+    final active = selectedServer;
+    final connected = isConnected;
+    final connecting = isConnecting;
+    final accent = connected
+        ? const Color(0xFF22C55E)
+        : const Color(0xFF3B82F6);
+    final statusTitle = connected
+        ? 'Connected'
+        : connecting
+            ? 'Connecting...'
+            : 'Tap to Connect';
+    final activePing = active?.pingFor(PingMode.real);
 
     return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
-        child: Column(
-          children: [
-            // هدر برنامه با لوگوی سفید S و نام SHIN (موارد ۵ و ۶)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.18),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: const Text(
-                        'S',
-                        style: TextStyle(
-                          color: Color(0xFF0B0F19),
-                          fontSize: 26,
-                          fontWeight: FontWeight.w900,
-                          height: 1.0,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'SHIN',
-                          style: TextStyle(
-                            fontSize: 21,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        Text(
-                          'Core: $coreVersion',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    IconButton.filledTonal(
-                      icon: const Icon(Icons.support_agent_rounded),
-                      tooltip: 'دریافت سرور از سازنده',
-                      onPressed: _showRequestServerFromCreatorDialog,
-                    ),
-                    const SizedBox(width: 6),
-                    IconButton.filledTonal(
-                      icon: const Icon(Icons.content_paste_go_rounded),
-                      tooltip: 'ایمپورت سریع از کلیپ‌بورد',
-                      onPressed: importFromClipboard,
-                    ),
-                    const SizedBox(width: 6),
-                    IconButton.filledTonal(
-                      icon: const Icon(Icons.add_rounded),
-                      tooltip: 'افزودن دستی یا اشتراک',
-                      onPressed: _showAddSheet,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            // کارت اصلی اتصال همراه با دکمه گرافیکی ویژه (مورد ۲)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(
-                  color: activeColor.withOpacity(isConnected ? 0.45 : 0.15),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: activeColor.withOpacity(isConnected ? 0.18 : 0.05),
-                    blurRadius: 30,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: activeColor.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: activeColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          statusText,
-                          style: TextStyle(
-                            color: activeColor,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // دکمه گرافیکی چندلایه با افکت ویژه
-                  ShinCyberConnectButton(
-                    isConnected: isConnected,
-                    isConnecting: isConnecting,
-                    activeColor: activeColor,
-                    onTap: toggleVpn,
-                  ),
-                  const SizedBox(height: 14),
-                  _buildIpCard(),
-
-                  const SizedBox(height: 14),
-                  Text(
-                    v2rayStatus.duration,
-                    textDirection: TextDirection.ltr,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildTrafficCard(
-                          title: 'سرعت دانلود',
-                          speed: fmtBytes(v2rayStatus.downloadSpeed,
-                              isSpeed: true),
-                          total: fmtBytes(v2rayStatus.download),
-                          icon: Icons.arrow_downward_rounded,
-                          color: const Color(0xFF10B981),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildTrafficCard(
-                          title: 'سرعت آپلود',
-                          speed:
-                              fmtBytes(v2rayStatus.uploadSpeed, isSpeed: true),
-                          total: fmtBytes(v2rayStatus.upload),
-                          icon: Icons.arrow_upward_rounded,
-                          color: const Color(0xFF3B82F6),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // دکمه اختصاصی دریافت سرور از سازنده (مورد ۳)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
-                  side: BorderSide(color: primaryColor.withOpacity(0.45)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                ),
-                icon: isRequestingFromCreator
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.cloud_download_rounded),
-                label: const Text(
-                  'دریافت سرور از سازنده (ارسال درخواست فوری)',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                ),
-                onPressed: isRequestingFromCreator
-                    ? null
-                    : _showRequestServerFromCreatorDialog,
-              ),
-            ),
-
-            const SizedBox(height: 12),
-            if (activeServer == null)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Column(
-                  children: [
-                    const Icon(Icons.cloud_off_rounded,
-                        size: 38, color: Colors.grey),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'هنوز هیچ سروری اضافه نکرده‌اید',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _showAddSheet,
-                      icon: const Icon(Icons.add_link_rounded),
-                      label: const Text('افزودن لینک سرور یا اشتراک'),
-                    ),
-                  ],
-                ),
-              )
-            else
-              InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: () => setState(() => currentTab = 1),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: primaryColor.withOpacity(0.25),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: protocolBadgeColor(activeServer.protocol)
-                              .withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          activeServer.protocol,
-                          style: TextStyle(
-                            color: protocolBadgeColor(activeServer.protocol),
-                            fontWeight: FontWeight.w800,
-                            fontSize: 9, // دو سایز کوچک‌تر
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // کاهش ۲ سایزی فونت نام سرور (از 13 به 11) (مورد ۴)
-                            Text(
-                              activeServer.remark,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 11,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            // کاهش ۲ سایزی زیرعنوان (از 11 به 9)
-                            Text(
-                              'اشتراک: ${activeServer.subName} • تغییر سرور',
-                              style: const TextStyle(
-                                fontSize: 9,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      _pingSummary(activeServer),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTrafficCard({
-    required String title,
-    required String speed,
-    required String total,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
-              Text(
-                title,
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
+              const SizedBox(width: 48),
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'SHIN',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.cloud_download_outlined),
+                tooltip: 'دریافت سرور از سازنده',
+                onPressed: _showRequestServerFromCreatorDialog,
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            speed,
-            textDirection: TextDirection.ltr,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          const SizedBox(height: 16),
+          Center(
+            child: _PowerButton(
+              connected: connected,
+              connecting: connecting,
+              accent: accent,
+              onTap: toggleVpn,
+            ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            'مجموع: $total',
-            style: const TextStyle(fontSize: 10, color: Colors.grey),
+          const SizedBox(height: 16),
+          Center(
+            child: Text(
+              statusTitle,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
           ),
+          if (connected)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  v2rayStatus.duration,
+                  textDirection: TextDirection.ltr,
+                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+              ),
+            ),
+          const SizedBox(height: 22),
+          _homeCard(
+            icon: Icons.signal_cellular_alt_rounded,
+            iconColor: accent,
+            title: connected ? (active?.remark ?? 'Connected') : 'No Connection',
+            subtitle: connected && activePing != null && activePing > 0
+                ? '$activePing ms'
+                : null,
+            onTap: () => setState(() => currentTab = 1),
+          ),
+          const SizedBox(height: 10),
+          _homeCard(
+            icon: Icons.bolt_rounded,
+            iconColor: const Color(0xFFF59E0B),
+            title: 'Best Server',
+            subtitle: 'Auto Select',
+            onTap: _autoSelectBestServer,
+          ),
+          const SizedBox(height: 22),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Servers',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              TextButton(
+                onPressed: () => setState(() => currentTab = 1),
+                child: const Text('See All'),
+              ),
+            ],
+          ),
+          if (servers.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'هنوز سروری اضافه نشده است',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
+          else
+            for (final server in servers.take(4)) _serverRow(server),
+          const SizedBox(height: 12),
+          if (ipAddress.isNotEmpty || isCheckingIp) _buildIpCard(),
         ],
       ),
     );
   }
 
-  Widget _pingChip(ServerItem server, PingMode mode) {
-    final ping = server.pingFor(mode);
-    final isBusy = server.busyPings.contains(mode.name);
-    final value = isBusy
-        ? null
-        : ping == null
-            ? '—'
-            : ping <= 0
-                ? 'خطا'
-                : '$ping ms';
+  Widget _pingPill(int? ping) {
     final color = ping == null ? Colors.grey : pingColor(ping);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap:
-          server.isPinging ? null : () => pingSingleServer(server, mode: mode),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              mode.label,
-              style: TextStyle(
-                color: color,
-                fontSize: 8.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(width: 3),
-            if (isBusy)
-              SizedBox(
-                width: 10,
-                height: 10,
-                child: CircularProgressIndicator(
-                  strokeWidth: 1.4,
-                  color: color,
-                ),
-              )
-            else
-              Text(
-                value!,
-                textDirection: TextDirection.ltr,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-          ],
+    final text = ping == null
+        ? '—'
+        : ping <= 0
+            ? 'Error'
+            : '$ping ms';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        text,
+        textDirection: TextDirection.ltr,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
         ),
       ),
-    );
-  }
-
-  // کارت سرور فقط نتیجهٔ حالت انتخاب‌شده را نشان می‌دهد
-  Widget _pingSummary(ServerItem server) {
-    return Wrap(
-      spacing: 4,
-      runSpacing: 4,
-      alignment: WrapAlignment.end,
-      children: [_pingChip(server, selectedPingMode)],
     );
   }
 
@@ -3547,7 +3351,7 @@ class _MainShellState extends State<MainShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('سرورها (${list.length})'),
+        title: Text('Servers · ${list.length}'),
         actions: [
           IconButton(
             icon: const Icon(Icons.support_agent_rounded),
@@ -3564,15 +3368,15 @@ class _MainShellState extends State<MainShell> {
                   ),
                 )
               : IconButton(
-                  icon: const Icon(Icons.bolt_rounded),
-                  tooltip: 'تست سریع پینگ همه سرورها',
+                  icon: const Icon(Icons.speed_rounded),
+                  tooltip: 'تست پینگ همه سرورها',
                   onPressed: testAllPings,
                 ),
           IconButton(
             icon: Icon(
               sortByPing ? Icons.sort_rounded : Icons.sort_by_alpha_rounded,
             ),
-            tooltip: 'مرتب‌سازی بر اساس کمترین پینگ',
+            tooltip: 'مرتب‌سازی بر اساس پینگ',
             onPressed: () {
               setState(() => sortByPing = !sortByPing);
               savePersistentData();
@@ -3587,52 +3391,41 @@ class _MainShellState extends State<MainShell> {
       ),
       body: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'Real Ping: تأخیر واقعی سرور از داخل هسته (مشابه v2rayNG)',
-                style: TextStyle(fontSize: 9, color: Colors.grey),
-              ),
-            ),
-          ),
           if (isTestingAll)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: LinearProgressIndicator(
-                value: pingTestsTotal == 0
-                    ? null
-                    : pingTestsCompleted / pingTestsTotal,
-                borderRadius: BorderRadius.circular(6),
-              ),
+            LinearProgressIndicator(
+              value: pingTestsTotal == 0 ? null : pingTestsCompleted / pingTestsTotal,
+              minHeight: 2,
             ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
             child: TextField(
               onChanged: (v) => setState(() => searchQuery = v),
-              style: const TextStyle(fontSize: 12),
               decoration: InputDecoration(
-                hintText: 'جستجو در نام سرور یا پروتکل (VLESS, SOCKS, ...)',
-                hintStyle: const TextStyle(fontSize: 11),
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                hintText: 'جستجوی سرور یا پروتکل',
+                prefixIcon: const Icon(Icons.search_rounded),
+                filled: true,
+                fillColor: Theme.of(context).cardColor,
                 isDense: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
                 ),
               ),
             ),
           ),
           if (subscriptions.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
               child: Card(
                 margin: EdgeInsets.zero,
                 child: ExpansionTile(
                   leading: const Icon(Icons.rss_feed_rounded, size: 20),
                   title: Text(
                     'اشتراک‌ها (${subscriptions.length})',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.sync_rounded),
@@ -3648,11 +3441,10 @@ class _MainShellState extends State<MainShell> {
             ),
           if (subscriptions.isNotEmpty || hasManual)
             SizedBox(
-              height: 44,
+              height: 46,
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 children: [
                   _groupChip('ALL', 'همه (${servers.length})'),
                   for (final sub in subscriptions) _groupChip(sub.id, sub.name),
@@ -3667,12 +3459,15 @@ class _MainShellState extends State<MainShell> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(Icons.dns_outlined,
-                            size: 48, color: Colors.grey),
-                        const SizedBox(height: 8),
-                        Text(servers.isEmpty
-                            ? 'هیچ سروری موجود نیست'
-                            : 'سروری با این عبارت پیدا نشد'),
-                        const SizedBox(height: 12),
+                            size: 56, color: Colors.grey),
+                        const SizedBox(height: 10),
+                        Text(
+                          servers.isEmpty
+                              ? 'هنوز سروری اضافه نشده است'
+                              : 'سروری با این عبارت پیدا نشد',
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                        const SizedBox(height: 14),
                         FilledButton.icon(
                           onPressed: _showRequestServerFromCreatorDialog,
                           icon: const Icon(Icons.support_agent_rounded),
@@ -3682,9 +3477,9 @@ class _MainShellState extends State<MainShell> {
                     ),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
                     itemCount: list.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 6),
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) => _serverTile(list[index]),
                   ),
           ),
@@ -3712,7 +3507,11 @@ class _MainShellState extends State<MainShell> {
   // آیتم سرور با فونت ۲ سایز کوچک‌تر (مورد ۴)
   Widget _serverTile(ServerItem server) {
     final isSelected = server.id == selectedServerId;
-    final pColor = protocolBadgeColor(server.protocol);
+    final protocolColor = protocolBadgeColor(server.protocol);
+    final scheme = Theme.of(context).colorScheme;
+    final shortProto = server.protocol.length > 4
+        ? server.protocol.substring(0, 4)
+        : server.protocol;
 
     return Dismissible(
       key: ValueKey(server.id),
@@ -3720,66 +3519,87 @@ class _MainShellState extends State<MainShell> {
       background: Container(
         decoration: BoxDecoration(
           color: Colors.redAccent,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
         ),
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: const Icon(Icons.delete_rounded, color: Colors.white),
       ),
       onDismissed: (_) => deleteServer(server),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected
-                ? Theme.of(context).colorScheme.primary
-                : Colors.transparent,
-            width: 1.5,
-          ),
-        ),
-        child: ListTile(
-          dense: true,
-          visualDensity: const VisualDensity(horizontal: 0, vertical: -2),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          leading: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-            decoration: BoxDecoration(
-              color: pColor.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              server.protocol,
-              style: TextStyle(
-                color: pColor,
-                fontWeight: FontWeight.w800,
-                fontSize: 8.5, // ۲ سایز کوچک‌تر (از 10 به 8.5)
-              ),
-            ),
-          ),
-          // ۲ سایز کوچک‌تر شدن نوشته سرور (از 13 به 11)
-          title: Text(
-            server.remark,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-            ),
-          ),
-          // ۲ سایز کوچک‌تر شدن زیرعنوان اشتراک (از 10 به 8.5)
-          subtitle: Text(
-            server.subName,
-            style: const TextStyle(fontSize: 8.5, color: Colors.grey),
-          ),
-          trailing: _pingSummary(server),
+      child: Material(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
           onLongPress: () => _showServerSheet(server),
           onTap: () async {
             setState(() => selectedServerId = server.id);
             await savePersistentData();
             await reconnectIfNeeded();
           },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: isSelected ? scheme.primary : Colors.transparent,
+                width: 1.5,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: protocolColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    shortProto,
+                    style: TextStyle(
+                      color: protocolColor,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        server.remark,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight:
+                              isSelected ? FontWeight.w800 : FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        server.subName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                _pingPill(server.pingFor(PingMode.real)),
+                IconButton(
+                  icon: const Icon(Icons.more_vert_rounded, size: 20),
+                  onPressed: () => _showServerSheet(server),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -4234,5 +4054,90 @@ class _MainShellState extends State<MainShell> {
       selectedGroupFilter = 'ALL';
     });
     await savePersistentData();
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  دکمهٔ اتصال مینیمال با هاله‌ی رنگی (سبک و بدون انیمیشن مداوم)
+// ---------------------------------------------------------------------------
+
+class _PowerButton extends StatelessWidget {
+  final bool connected;
+  final bool connecting;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _PowerButton({
+    required this.connected,
+    required this.connecting,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 240,
+        height: 240,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 400),
+              width: 240,
+              height: 240,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: accent, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: accent.withOpacity(0.4),
+                    blurRadius: 36,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 400),
+              width: 190,
+              height: 190,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF0F1626),
+                border: Border.all(color: accent.withOpacity(0.5), width: 1.5),
+              ),
+              child: Center(
+                child: connecting
+                    ? SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: accent,
+                        ),
+                      )
+                    : connected
+                        ? Text(
+                            'S',
+                            style: TextStyle(
+                              fontSize: 72,
+                              fontWeight: FontWeight.w900,
+                              color: accent,
+                            ),
+                          )
+                        : Icon(
+                            Icons.power_settings_new_rounded,
+                            size: 72,
+                            color: accent,
+                          ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
