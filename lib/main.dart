@@ -221,8 +221,8 @@ Future<void> vpnBackgroundMain() async {
 
 const String kAppVersion = '1.00.0';
 
-// مخزن گیت‌هاب برای بررسی بروزرسانی: نام کاربری/نام مخزن خود را بگذارید
-const String kUpdateRepo = 'OWNER/REPO';
+// مخزن گیت‌هاب برای بررسی بروزرسانی (owner/repo)
+const String kUpdateRepo = 'Shainsr/happvpn';
 
 const List<String> kUserAgents = [
   'SHIN/1.00.0 (Android; Xray/26.10.31)',
