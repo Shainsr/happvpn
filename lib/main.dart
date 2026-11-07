@@ -72,8 +72,7 @@ Future?> fetchLatestReleaseInfo() async {
     final data = jsonDecode(body);
     if (data is! Map) return null;
 
-    final tag =
-        (data['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^v'), '');
+    final tag = (data['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^v'), '');
     var apk = '';
     var fallback = '';
     final assets = data['assets'];
@@ -112,7 +111,7 @@ class UpdateNotifier {
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // جلوگیری از کرش هنگام لمس نوتیفیکیشن در اندروید ۱۲+
+        // هندلینگ امن کلیک روی نوتیفیکیشن برای جلوگیری از کرش در اندروید ۱۲+
       },
     );
   }
@@ -197,9 +196,7 @@ bool isIranianBankLabel(String name) {
 
 bool isIranianPackage(String pkg) {
   final p = pkg.toLowerCase();
-  return p.startsWith('ir.') ||
-      p.startsWith('cab.snapp.') ||
-      kIranianPackages.contains(p);
+  return p.startsWith('ir.') || p.startsWith('cab.snapp.') || kIranianPackages.contains(p);
 }
 
 const Map<String, String> kCountryNames = {
@@ -485,13 +482,12 @@ class LinkParser {
             'settings': {'domainStrategy': 'UseIP'}
           },
           {'tag': 'blackhole', 'protocol': 'blackhole', 'settings': {}},
-          {'tag': 'dns-out', 'protocol': 'dns'},
         ],
       };
 
   static List<JsonMap> standardInbounds() => [
         {
-          'tag': 'in_proxy',
+          'tag': 'socks',
           'port': 10808,
           'protocol': 'socks',
           'listen': '127.0.0.1',
@@ -503,7 +499,7 @@ class LinkParser {
           },
         },
         {
-          'tag': 'in_http',
+          'tag': 'http',
           'port': 10809,
           'protocol': 'http',
           'listen': '127.0.0.1',
@@ -1019,7 +1015,9 @@ ImportReport buildImport(
         orElse: () => null,
       ) as Map?;
 
-      cfg['inbounds'] = LinkParser.standardInbounds();
+      if (cfg['inbounds'] == null || (cfg['inbounds'] as List).isEmpty) {
+        cfg['inbounds'] = LinkParser.standardInbounds();
+      }
       final remark =
           (cfg['remarks'] ?? cfg['remark'] ?? cfg['ps'] ?? '').toString().trim();
       final protocol = (main?['protocol'] ?? 'JSON').toString().toUpperCase();
@@ -1398,216 +1396,6 @@ Color protocolBadgeColor(String protocol) {
 }
 
 // ---------------------------------------------------------------------------
-//  دکمه گرافیکی ویژه SHIN
-// ---------------------------------------------------------------------------
-
-class ShinCyberConnectButton extends StatefulWidget {
-  final bool isConnected;
-  final bool isConnecting;
-  final Color activeColor;
-  final VoidCallback onTap;
-
-  const ShinCyberConnectButton({
-    super.key,
-    required this.isConnected,
-    required this.isConnecting,
-    required this.activeColor,
-    required this.onTap,
-  });
-
-  @override
-  State<ShinCyberConnectButton> createState() => _ShinCyberConnectButtonState();
-}
-
-class _ShinCyberConnectButtonState extends State<ShinCyberConnectButton>
-    with TickerProviderStateMixin {
-  late final AnimationController _waveCtrl;
-  late final AnimationController _rotateCtrl;
-  late final AnimationController _pressCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _waveCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat();
-
-    _rotateCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 5),
-    )..repeat();
-
-    _pressCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 140),
-      lowerBound: 0.0,
-      upperBound: 0.08,
-    );
-  }
-
-  @override
-  void dispose() {
-    _waveCtrl.dispose();
-    _rotateCtrl.dispose();
-    _pressCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final color = widget.activeColor;
-
-    return GestureDetector(
-      onTapDown: (_) => _pressCtrl.forward(),
-      onTapUp: (_) {
-        _pressCtrl.reverse();
-        HapticFeedback.mediumImpact();
-        widget.onTap();
-      },
-      onTapCancel: () => _pressCtrl.reverse(),
-      child: AnimatedBuilder(
-        animation: Listenable.merge([_waveCtrl, _rotateCtrl, _pressCtrl]),
-        builder: (context, _) {
-          final pressScale = 1.0 - _pressCtrl.value;
-          return Transform.scale(
-            scale: pressScale,
-            child: SizedBox(
-              width: 220,
-              height: 220,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  AnimatedOpacity(
-                    opacity: widget.isConnected || widget.isConnecting ? 1 : 0,
-                    duration: const Duration(milliseconds: 520),
-                    curve: Curves.easeOutCubic,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: List.generate(3, (index) {
-                        final progress =
-                            (_waveCtrl.value + (index * 0.333)) % 1.0;
-                        final size = 128.0 + (progress * 88.0);
-                        final opacity = (1.0 - progress).clamp(0.0, 1.0);
-                        return Container(
-                          width: size,
-                          height: size,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: color.withOpacity(opacity * 0.65),
-                              width: 2.5 * opacity + 0.5,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: color.withOpacity(opacity * 0.2),
-                                blurRadius: 14,
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ),
-                  ),
-                  Transform.rotate(
-                    angle: _rotateCtrl.value * 2 * pi,
-                    child: Container(
-                      width: 162,
-                      height: 162,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: SweepGradient(
-                          colors: [
-                            color.withOpacity(0.05),
-                            color.withOpacity(
-                                widget.isConnected || widget.isConnecting
-                                    ? 0.95
-                                    : 0.45),
-                            color.withOpacity(0.05),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    width: 152,
-                    height: 152,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Theme.of(context).cardColor,
-                    ),
-                  ),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 450),
-                    curve: Curves.easeOutBack,
-                    width: widget.isConnected ? 138 : 132,
-                    height: widget.isConnected ? 138 : 132,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        center: const Alignment(-0.25, -0.25),
-                        radius: 0.95,
-                        colors: [
-                          color,
-                          Color.lerp(color, Colors.black, 0.45)!,
-                        ],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: color.withOpacity(
-                              widget.isConnected ? 0.65 : 0.35),
-                          blurRadius: widget.isConnected ? 34 : 18,
-                          spreadRadius: widget.isConnected ? 6 : 1,
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        if (widget.isConnecting)
-                          const SizedBox(
-                            width: 42,
-                            height: 42,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 3.2,
-                            ),
-                          )
-                        else
-                          Icon(
-                            widget.isConnected
-                                ? Icons.shield_rounded
-                                : Icons.power_settings_new_rounded,
-                            size: 52,
-                            color: Colors.white,
-                          ),
-                        const SizedBox(height: 6),
-                        Text(
-                          widget.isConnected
-                              ? 'متصل'
-                              : widget.isConnecting
-                                  ? 'در حال اتصال'
-                                  : 'شروع اتصال',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 //  ریشه اپلیکیشن و مدیریت تم
 // ---------------------------------------------------------------------------
 
@@ -1669,8 +1457,7 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
       dividerColor: isDark ? const Color(0xFF232732) : const Color(0xFFE6E8EE),
       colorScheme: isDark
           ? ColorScheme.dark(primary: accent, secondary: accent, surface: card)
-          : ColorScheme.light(
-              primary: accent, secondary: accent, surface: card),
+          : ColorScheme.light(primary: accent, secondary: accent, surface: card),
       appBarTheme: AppBarTheme(
         backgroundColor: bg,
         foregroundColor: text,
@@ -1699,7 +1486,7 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
       ),
-      segmentedButtonTheme: SegmentedButtonThemeData(
+      segmentedButtonTheme: const SegmentedButtonThemeData(
         style: ButtonStyle(visualDensity: VisualDensity.compact),
       ),
       pageTransitionsTheme: const PageTransitionsTheme(
@@ -1710,8 +1497,7 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
       ),
     );
     return base.copyWith(
-      textTheme: base.textTheme.apply(
-          fontFamily: 'Vazirmatn', bodyColor: text, displayColor: text),
+      textTheme: base.textTheme.apply(fontFamily: 'Vazirmatn', bodyColor: text, displayColor: text),
       primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Vazirmatn'),
     );
   }
@@ -1798,8 +1584,7 @@ class _MainShellState extends State<MainShell> {
   bool autoUpdateSubs = true;
   String selectedDns = '1.1.1.1';
   String hwid = '';
-  String updateRepoUrl =
-      'https://api.github.com/repos/$kUpdateRepo/releases/latest';
+  String updateRepoUrl = 'https://api.github.com/repos/$kUpdateRepo/releases/latest';
   String availableVersion = '';
   String availableApkUrl = '';
   String availableChangelog = '';
@@ -1824,8 +1609,7 @@ class _MainShellState extends State<MainShell> {
           if (mounted) setState(() => _pendingTarget = null);
         }
         unawaited(
-          _syncNativeConnectionState(
-              status.state == 'CONNECTED', status.state),
+          _syncNativeConnectionState(status.state == 'CONNECTED', status.state),
         );
         if (status.state == 'DISCONNECTED' && mounted) {
           setState(() {
@@ -1849,11 +1633,9 @@ class _MainShellState extends State<MainShell> {
     } catch (e) {
       if (mounted) showSnack('راه‌اندازی هسته Xray ناموفق بود: $e');
     }
-    String ver = '';
-    try {} catch (_) {}
     await loadPersistentData();
     if (!mounted) return;
-    setState(() => coreVersion = ver.isEmpty ? 'هستهٔ Xray v26.9.9' : ver);
+    setState(() => coreVersion = 'هستهٔ Xray v26.9.9');
     await _syncNativeConnectionState(isConnected, v2rayStatus.state);
     await _consumePendingQuickAction();
     _autoUpdateOldSubscriptions();
@@ -1869,8 +1651,7 @@ class _MainShellState extends State<MainShell> {
     try {
       await UpdateNotifier.init();
       await UpdateNotifier.requestPermission();
-      await Workmanager()
-          .initialize(shinUpdateDispatcher, isInDebugMode: false);
+      await Workmanager().initialize(shinUpdateDispatcher, isInDebugMode: false);
       await Workmanager().registerPeriodicTask(
         'shin-update-check',
         'shinUpdateCheck',
@@ -1909,158 +1690,7 @@ class _MainShellState extends State<MainShell> {
     } catch (_) {}
   }
 
-  void _showRequestServerFromCreatorDialog() {
-    final userNoteCtrl = TextEditingController();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            4,
-            20,
-            MediaQuery.of(ctx).viewInsets.bottom + 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _sheetHeader(Icons.cloud_download_rounded,
-                  const Color(0xFF10B981), 'دریافت سرور از سازنده',
-                  'درخواست به وب‌سرویس سازنده ارسال می‌شود'),
-              const SizedBox(height: 14),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'HWID: $hwid',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textDirection: TextDirection.ltr,
-                        style: const TextStyle(
-                            fontFamily: 'monospace', fontSize: 11),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.copy_rounded, size: 18),
-                      tooltip: 'کپی شناسه',
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: hwid));
-                        showSnack('شناسه دستگاه کپی شد');
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: userNoteCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'نام یا آیدی تلگرام (اختیاری)',
-                  hintText: 'مثلاً @username',
-                ),
-              ),
-              const SizedBox(height: 14),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                icon: const Icon(Icons.send_rounded),
-                label: const Text(
-                  'ارسال درخواست',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                onPressed: () {
-                  final note = userNoteCtrl.text.trim();
-                  Navigator.pop(ctx);
-                  _sendServerRequestToCreator(note);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _sendServerRequestToCreator(String userNote) async {
-    if (isRequestingFromCreator) return;
-    setState(() => isRequestingFromCreator = true);
-    showSnack('در حال ارسال درخواست سرور به سازنده...');
-
-    final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 12);
-    bool requestSent = false;
-    bool subscriptionLoaded = false;
-
-    final messageText = '🚀 درخواست سرور جدید در برنامه SHIN\n'
-        '🔑 شناسه دستگاه (HWID): $hwid\n'
-        '📝 پیام کاربر: ${userNote.isEmpty ? "بدون توضیح" : userNote}\n'
-        '📱 نسخه برنامه: $kAppVersion\n'
-        '🆔 شناسه درخواست: ${DateTime.now().microsecondsSinceEpoch}\n'
-        '⏰ زمان: ${DateTime.now().toIso8601String()}';
-
-    try {
-      if (Uri.tryParse(kCreatorWebhookUrl.trim())?.scheme == 'https') {
-        final req = await client.postUrl(Uri.parse(kCreatorWebhookUrl.trim()));
-        req.headers.set('Content-Type', 'application/json; charset=utf-8');
-        req.add(utf8.encode(jsonEncode({
-          'app': 'SHIN',
-          'version': kAppVersion,
-          'hwid': hwid,
-          'note': userNote,
-          'timestamp': DateTime.now().toIso8601String(),
-        })));
-        final resp = await req.close().timeout(const Duration(seconds: 12));
-        if (resp.statusCode >= 200 && resp.statusCode < 300) {
-          requestSent = true;
-        }
-      }
-
-      if (kCreatorDefaultSubUrl.trim().startsWith('http')) {
-        await processInput(
-          kCreatorDefaultSubUrl.trim(),
-          name: 'سرورهای اختصاصی SHIN',
-        );
-        subscriptionLoaded = true;
-      }
-
-      if (requestSent) {
-        showSnack('درخواست شما با موفقیت برای سازنده ارسال شد! ✅');
-      } else if (subscriptionLoaded) {
-        showSnack(
-            'سرورهای پیش‌فرض SHIN دریافت شدند؛ وب‌هوک درخواست سازنده تنظیم نشده است.');
-      } else {
-        await Clipboard.setData(ClipboardData(text: messageText));
-        showSnack(
-          'متن درخواست و شناسه HWID شما کپی شد؛ برای سازنده ارسال کنید 📩',
-        );
-      }
-    } catch (_) {
-      await Clipboard.setData(ClipboardData(text: messageText));
-      showSnack(
-        'خطا در ارتباط مستقیم؛ متن درخواست در کلیپ‌بورد کپی شد 📋',
-      );
-    } finally {
-      client.close(force: true);
-      if (mounted) setState(() => isRequestingFromCreator = false);
-    }
-  }
+  // ------------------------------------------------------------------ ذخیره‌سازی
 
   Future<void> savePersistentData() async {
     try {
@@ -2148,8 +1778,7 @@ class _MainShellState extends State<MainShell> {
         allowInsecureDefault = prefs.getBool('allowInsecureDefault') ?? false;
         autoUpdateSubs = prefs.getBool('autoUpdateSubs') ?? true;
         selectedDns = prefs.getString('selectedDns') ?? '1.1.1.1';
-        updateRepoUrl =
-            'https://api.github.com/repos/$kUpdateRepo/releases/latest';
+        updateRepoUrl = 'https://api.github.com/repos/$kUpdateRepo/releases/latest';
         selectedPingMode = PingMode.values.firstWhere(
           (mode) => mode.name == prefs.getString('pingMode'),
           orElse: () => PingMode.real,
@@ -2203,51 +1832,15 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  Future<void> checkIpCountry() async {
-    if (isCheckingIp) return;
-    setState(() => isCheckingIp = true);
-    try {
-      final exit = await _fetchJson('https://api.country.is/');
-
-      var sIp = '';
-      var sCode = '';
-      final target = selectedServer;
-      if (target != null) {
-        final ep = extractServerEndpoint(target.fullJsonConfig);
-        if (ep != null) {
-          try {
-            final addr = await InternetAddress.lookup(ep.host)
-                .timeout(const Duration(seconds: 4));
-            if (addr.isNotEmpty) {
-              sIp = addr.first.address;
-              final info = await _fetchJson('https://api.country.is/$sIp');
-              sCode = (info?['country'] ?? '').toString();
-            }
-          } catch (_) {}
-        }
-      }
-
-      if (!mounted) return;
-      setState(() {
-        ipAddress = (exit?['ip'] ?? '').toString();
-        ipCountryCode = (exit?['country'] ?? '').toString();
-        serverIp = sIp;
-        serverCountryCode = sCode;
-      });
-    } finally {
-      if (mounted) setState(() => isCheckingIp = false);
-    }
-  }
-
-  // ------------------------------------------------------------------ ساخت کانفیگ اصلاح‌شده برای کار کردن تمام برنامه‌ها
+  // ------------------------------------------------------------------ ساخت کانفیگ استاندارد و رفع باگ عدم باز شدن برنامه‌ها
 
   String buildCustomizedConfig(String rawJson) {
     try {
       final JsonMap config = JsonMap.from(jsonDecode(rawJson));
 
-      // ۱. تنظیمات کامل DNS برای باز شدن تمام اپلیکیشن‌ها و سایت‌ها
+      // ۱. تنظیم سرورهای DNS برای کارکرد صحیح تمام اپلیکیشن‌ها و مرورگرها
       config['dns'] = {
-        'servers': [
+        'servers': <dynamic>[
           selectedDns,
           '1.1.1.1',
           '8.8.8.8',
@@ -2256,17 +1849,31 @@ class _MainShellState extends State<MainShell> {
               'address': '217.218.127.127',
               'port': 53,
               'domains': ['regexp:.*\\.ir\$'],
-            }
+            },
         ],
         'queryStrategy': enableIPv6 ? 'UseIP' : 'UseIPv4',
       };
 
-      // ۲. اطمینان از فعال بودن Sniffing و UDP در تمامی Inboundها
-      if (config['inbounds'] is List && (config['inbounds'] as List).isNotEmpty) {
-        for (final inb in config['inbounds']) {
+      // ۲. تضمین وجود هر دو پورت Socks (10808) با UDP فعال و HTTP (10809) برای tun2socks
+      if (config['inbounds'] is! List || (config['inbounds'] as List).isEmpty) {
+        config['inbounds'] = LinkParser.standardInbounds();
+      } else {
+        final List inbounds = config['inbounds'];
+        bool hasHttp = false;
+        for (final inb in inbounds) {
           if (inb is Map) {
-            if (inb['protocol'] == 'socks' && inb['settings'] is Map) {
-              inb['settings']['udp'] = true;
+            if (inb['protocol'] == 'socks') {
+              inb['port'] ??= 10808;
+              inb['listen'] ??= '127.0.0.1';
+              if (inb['settings'] is Map) {
+                inb['settings']['udp'] = true;
+                inb['settings']['auth'] ??= 'noauth';
+              } else {
+                inb['settings'] = {'auth': 'noauth', 'udp': true, 'userLevel': 8};
+              }
+            }
+            if (inb['protocol'] == 'http') {
+              hasHttp = true;
             }
             inb['sniffing'] = {
               'enabled': true,
@@ -2275,16 +1882,30 @@ class _MainShellState extends State<MainShell> {
             };
           }
         }
-      } else {
-        config['inbounds'] = LinkParser.standardInbounds();
+        if (!hasHttp) {
+          inbounds.add({
+            'tag': 'http',
+            'port': 10809,
+            'protocol': 'http',
+            'listen': '127.0.0.1',
+            'settings': {'userLevel': 8},
+            'sniffing': {
+              'enabled': true,
+              'destOverride': ['http', 'tls', 'quic'],
+              'routeOnly': false,
+            },
+          });
+        }
       }
 
-      // ۳. تنظیمات Outbounds و اضافه کردن dns-out
+      // ۳. تنظیمات Outbounds (افزودن تگ proxy، direct با UseIP، blackhole و dns-out)
+      String mainProxyTag = 'proxy';
       if (config['outbounds'] is List &&
           (config['outbounds'] as List).isNotEmpty) {
         final List outbounds = config['outbounds'];
         if (outbounds[0] is Map) {
           outbounds[0]['tag'] ??= 'proxy';
+          mainProxyTag = outbounds[0]['tag'].toString();
           outbounds[0]['mux'] = {
             'enabled': enableMux,
             'concurrency': enableMux ? 8 : -1,
@@ -2315,13 +1936,7 @@ class _MainShellState extends State<MainShell> {
         }
       }
 
-      final String mainOutboundTag = (config['outbounds'] is List &&
-              (config['outbounds'] as List).isNotEmpty &&
-              config['outbounds'][0] is Map)
-          ? (config['outbounds'][0]['tag'] ?? 'proxy').toString()
-          : 'proxy';
-
-      // ۴. قوانین مسیریابی (هدایت پورت 53 به DNS و ترافیک عمومی به سرور VPN)
+      // ۴. قوانین مسیریابی (Routing) و پاسخ‌دهی پورت 53 (DNS)
       final List<dynamic> rules = [
         {
           'type': 'field',
@@ -2370,11 +1985,11 @@ class _MainShellState extends State<MainShell> {
         });
       }
 
-      // هدایت تمام ترافیک باقی‌مانده (TCP/UDP) به خروجی اصلی VPN
+      // هدایت صریح تمام ترافیک TCP و UDP باقی‌مانده به سمت پروکسی اصلی
       rules.add({
         'type': 'field',
         'network': 'tcp,udp',
-        'outboundTag': mainOutboundTag,
+        'outboundTag': mainProxyTag,
       });
 
       config['routing'] = {
@@ -2499,7 +2114,7 @@ class _MainShellState extends State<MainShell> {
       await flutterV2ray.startV2Ray(
         remark: target.remark,
         config: finalConfig,
-        proxyOnly: isProxyOnly,
+        proxyOnly: false,
         blockedApps: bypassApps.isEmpty ? null : bypassApps.toList(),
         bypassSubnets: null,
       );
@@ -2574,8 +2189,9 @@ class _MainShellState extends State<MainShell> {
     final samples = <int>[];
     for (var i = 0; i < attempts; i++) {
       try {
-        final ms =
-            await flutterV2ray.getServerDelay(config: cfg).timeout(timeout);
+        final ms = await flutterV2ray
+            .getServerDelay(config: cfg)
+            .timeout(timeout);
         if (ms > 0) samples.add(ms);
       } catch (_) {}
     }
@@ -2734,8 +2350,7 @@ class _MainShellState extends State<MainShell> {
       final data = jsonDecode(body);
       if (data is! Map) throw 'پاسخ نامعتبر از سرور';
 
-      final tag =
-          (data['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^v'), '');
+      final tag = (data['tag_name'] ?? '').toString().replaceFirst(RegExp(r'^v'), '');
       final notes = (data['body'] ?? '').toString();
 
       var apk = '';
@@ -2744,3 +2359,2661 @@ class _MainShellState extends State<MainShell> {
         var fallback = '';
         for (final a in assets) {
           if (a is! Map) continue;
+          final name = (a['name'] ?? '').toString();
+          if (!name.endsWith('.apk')) continue;
+          final url = (a['browser_download_url'] ?? '').toString();
+          if (name.contains('arm64')) {
+            apk = url;
+            break;
+          }
+          if (fallback.isEmpty) fallback = url;
+        }
+        if (apk.isEmpty) apk = fallback;
+      }
+
+      if (!mounted) return;
+      final newer = tag.isNotEmpty && _isNewer(tag, kAppVersion);
+      setState(() {
+        availableVersion = newer ? tag : '';
+        availableApkUrl = apk;
+        availableChangelog = notes;
+      });
+
+      if (!silent) {
+        if (newer) {
+          _showUpdateSheet();
+        } else {
+          showSnack('برنامه به‌روز است ($kAppVersion)');
+        }
+      }
+    } catch (_) {
+      if (!silent) showSnack('بررسی بروزرسانی ناموفق بود');
+    } finally {
+      client.close(force: true);
+      if (mounted) setState(() => isCheckingUpdate = false);
+    }
+  }
+
+  void _showUpdateSheet() {
+    _infoSheet(
+      icon: Icons.system_update_rounded,
+      color: const Color(0xFF4F7CFF),
+      title: 'نسخهٔ جدید $availableVersion',
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _kv('نسخهٔ فعلی', kAppVersion),
+          if (availableChangelog.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: SingleChildScrollView(
+                child: Text(
+                  availableChangelog,
+                  style: const TextStyle(fontSize: 12, height: 1.6),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: (ctx) => [
+        OutlinedButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('بعداً'),
+        ),
+        FilledButton.icon(
+          icon: const Icon(Icons.download_rounded),
+          label: const Text('دانلود و نصب'),
+          onPressed: () {
+            Navigator.pop(ctx);
+            _downloadAndInstall();
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _downloadAndInstall() async {
+    if (availableApkUrl.isEmpty) {
+      showSnack('فایل نصبی این نسخه پیدا نشد');
+      return;
+    }
+    final text = ValueNotifier<String>('در حال دانلود...');
+    final value = ValueNotifier<double?>(null);
+    final client = HttpClient();
+    final version = availableVersion.isEmpty ? 'latest' : availableVersion;
+
+    if (mounted) {
+      showModalBottomSheet(
+        context: context,
+        isDismissible: false,
+        showDragHandle: true,
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: ValueListenableBuilder<double?>(
+              valueListenable: value,
+              builder: (_, v, __) => ValueListenableBuilder<String>(
+                valueListenable: text,
+                builder: (_, t, __) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('دانلود نسخهٔ $version',
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                    const SizedBox(height: 16),
+                    LinearProgressIndicator(value: v, minHeight: 8),
+                    const SizedBox(height: 10),
+                    Text(t,
+                        textAlign: TextAlign.center,
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    try {
+      final dir = Directory('${(await getTemporaryDirectory()).path}/updates');
+      if (await dir.exists()) {
+        await for (final f in dir.list()) {
+          if (f is File) await f.delete();
+        }
+      } else {
+        await dir.create(recursive: true);
+      }
+      final file = File('${dir.path}/shin-$version.apk');
+
+      final req = await client.getUrl(Uri.parse(availableApkUrl));
+      req.followRedirects = true;
+      req.maxRedirects = 5;
+      final resp = await req.close();
+      if (resp.statusCode != 200) {
+        throw 'کد پاسخ سرور: ${resp.statusCode}';
+      }
+      final total = resp.contentLength;
+      var received = 0;
+      final sink = file.openWrite();
+      await for (final chunk in resp) {
+        sink.add(chunk);
+        received += chunk.length;
+        value.value = total > 0 ? received / total : null;
+        text.value = total > 0
+            ? '${(received / total * 100).toStringAsFixed(0)}%  •  '
+                '${_fmtBytes(received)} از ${_fmtBytes(total)}'
+            : '${_fmtBytes(received)} دانلود شده';
+      }
+      await sink.close();
+      if (total > 0 && received != total) {
+        throw 'دانلود کامل نشد (${_fmtBytes(received)} از ${_fmtBytes(total)})';
+      }
+
+      if (mounted) Navigator.of(context, rootNavigator: true).maybePop();
+      final result = await kQuickControlsChannel
+          .invokeMethod<String>('installApk', {'path': file.path});
+      if (result == 'permission') {
+        showSnack('اجازهٔ نصب از این منبع را بدهید و دوباره تلاش کنید');
+      }
+    } catch (e) {
+      if (mounted) Navigator.of(context, rootNavigator: true).maybePop();
+      showSnack('دانلود ناموفق بود: $e');
+    } finally {
+      client.close(force: true);
+      text.dispose();
+      value.dispose();
+    }
+  }
+
+  Widget _updateBanner() {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'نسخهٔ جدید $availableVersion موجود است',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          if (downloadProgress != null)
+            LinearProgressIndicator(
+              value: downloadProgress == 0 ? null : downloadProgress,
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _downloadAndInstall,
+                    child: const Text('دانلود و نصب'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => setState(() => availableVersion = ''),
+                  child: const Text('بعداً'),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------ آپدیت سابسکریپشن
+
+  Future<void> updateSubscription(
+    SubscriptionItem sub, {
+    bool silent = false,
+  }) async {
+    if (sub.isUpdating) return;
+    while (_subUpdateMutex) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+    _subUpdateMutex = true;
+
+    try {
+      if (!mounted) return;
+      setState(() {
+        sub.isUpdating = true;
+        sub.lastError = null;
+      });
+
+      ImportReport? best;
+      FetchResult? bestFetch;
+      String? networkError;
+
+      final candidateUrls =
+          resolveSubscriptionCandidateUrls(sub.url, sub.fallbackUrl);
+
+      outerLoop:
+      for (final targetUrl in candidateUrls) {
+        for (final ua in kUserAgents) {
+          final res = await fetchSubscription(targetUrl, ua, hwid);
+          if (res.error != null) {
+            networkError = res.error;
+            break;
+          }
+          if (res.status != 200) {
+            best ??= ImportReport()..httpStatus = res.status;
+            best.httpStatus = res.status;
+            continue;
+          }
+          final report =
+              buildImport(res.body, subId: sub.id, subName: sub.name);
+          report.httpStatus = res.status;
+          if (best == null ||
+              report.added > best.added ||
+              best.httpStatus != 200) {
+            best = report;
+            bestFetch = res;
+          }
+          if (report.added > 0 &&
+              report.failed == 0 &&
+              report.unsupported.isEmpty) {
+            break outerLoop;
+          }
+        }
+      }
+
+      if (!mounted) return;
+
+      if (networkError != null && (best == null || best.added == 0)) {
+        setState(() {
+          sub.isUpdating = false;
+          sub.lastError = 'خطای شبکه یا عدم دسترسی به لینک';
+        });
+        if (!silent) showSnack('خطا در دریافت سابسکریپشن «${sub.name}» ❌');
+        return;
+      }
+
+      final report = best ?? ImportReport();
+
+      if (report.added > 0) {
+        final prev = selectedServer;
+        final prevWasInThisSub = prev != null && prev.subId == sub.id;
+        final prevRawUrl = prev?.rawUrl;
+        final prevRemark = prev?.remark;
+
+        servers.removeWhere((s) => s.subId == sub.id);
+        servers.addAll(report.servers);
+
+        if (prevWasInThisSub) {
+          ServerItem? matched;
+          if (prevRawUrl != null && prevRawUrl.isNotEmpty) {
+            for (final s in report.servers) {
+              if (s.rawUrl == prevRawUrl) {
+                matched = s;
+                break;
+              }
+            }
+          }
+          if (matched == null && prevRemark != null) {
+            for (final s in report.servers) {
+              if (s.remark == prevRemark) {
+                matched = s;
+                break;
+              }
+            }
+          }
+          if (matched != null) {
+            selectedServerId = matched.id;
+          }
+        }
+        if (!servers.any((s) => s.id == selectedServerId) &&
+            servers.isNotEmpty) {
+          selectedServerId = servers.first.id;
+        }
+      } else {
+        sub.lastError = report.httpStatus != 200 && report.httpStatus != 0
+            ? 'کد وضعیت سرور: ${report.httpStatus}'
+            : 'هیچ سروری در پاسخ یافت نشد';
+      }
+
+      if (bestFetch != null) {
+        final fallbackHeader = bestFetch.headers['fallback-url'] ??
+            bestFetch.headers['x-fallback-url'];
+        if (fallbackHeader != null && fallbackHeader.startsWith('http')) {
+          sub.fallbackUrl = fallbackHeader.trim();
+        }
+
+        final info = bestFetch.headers['subscription-userinfo'];
+        if (info != null) {
+          sub.usedBytes = 0;
+          for (final part in info.split(';')) {
+            final kv = part.trim().split('=');
+            if (kv.length != 2) continue;
+            final value = double.tryParse(kv[1].trim())?.toInt() ?? 0;
+            switch (kv[0].trim().toLowerCase()) {
+              case 'upload':
+              case 'download':
+                sub.usedBytes += value;
+                break;
+              case 'total':
+                sub.totalBytes = value;
+                break;
+              case 'expire':
+                sub.expireSec = value;
+                break;
+            }
+          }
+        }
+        final title = bestFetch.headers['profile-title'];
+        if (title != null && title.isNotEmpty && sub.autoName) {
+          var t = title.trim();
+          if (t.toLowerCase().startsWith('base64:')) {
+            t = LinkParser.decodeBase64Loose(t.substring(7)) ?? t;
+          }
+          if (t.isNotEmpty) {
+            sub.name = t;
+            for (final s in servers.where((s) => s.subId == sub.id)) {
+              s.subName = t;
+            }
+          }
+        }
+      }
+
+      setState(() {
+        sub.isUpdating = false;
+        if (report.added > 0) {
+          sub.serverCount = report.added;
+          sub.updatedAt = DateTime.now().millisecondsSinceEpoch;
+        }
+      });
+      await savePersistentData();
+
+      if (silent) return;
+      if (report.hasProblems) {
+        _showReportSheet(sub.name, report);
+      } else {
+        showSnack(
+            'اشتراک «${sub.name}» بروزرسانی شد (${report.added} سرور) ✅');
+      }
+    } finally {
+      _subUpdateMutex = false;
+    }
+  }
+
+  Future<void> updateAllSubscriptions() async {
+    if (subscriptions.isEmpty) {
+      showSnack('هیچ سابسکریپشنی ثبت نشده است!');
+      return;
+    }
+    for (final sub in List<SubscriptionItem>.from(subscriptions)) {
+      await updateSubscription(sub);
+    }
+  }
+
+  Future<void> _autoUpdateOldSubscriptions() async {
+    if (!autoUpdateSubs) return;
+    final cutoff =
+        DateTime.now().subtract(const Duration(hours: 6)).millisecondsSinceEpoch;
+    for (final sub in List<SubscriptionItem>.from(subscriptions)) {
+      if (sub.updatedAt <= cutoff) {
+        await updateSubscription(sub, silent: true);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ ایمپورت
+
+  Future<void> importFromClipboard() async {
+    final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      showSnack('کلیپ‌بورد خالی است! 📋');
+      return;
+    }
+    await processInput(text);
+  }
+
+  Future<void> processInput(
+    String input, {
+    String? name,
+    String? fallbackUrl,
+  }) async {
+    final text = input.trim();
+    if (text.isEmpty) return;
+
+    final isUrl =
+        RegExp(r'^https?://\S+$', caseSensitive: false).hasMatch(text);
+    if (isUrl) {
+      final existing = subscriptions.where((s) => s.url == text);
+      if (existing.isNotEmpty) {
+        showSnack('این اشتراک قبلاً ثبت شده؛ در حال بروزرسانی...');
+        await updateSubscription(existing.first);
+        return;
+      }
+
+      var subName = (name ?? '').trim();
+      var auto = false;
+      if (subName.isEmpty) {
+        final frag = Uri.tryParse(text)?.fragment ?? '';
+        subName = frag.isNotEmpty
+            ? LinkParser.safeDecode(frag)
+            : 'اشتراک ${subscriptions.length + 1}';
+        auto = frag.isEmpty;
+      }
+
+      final sub = SubscriptionItem(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: subName,
+        url: text,
+        fallbackUrl: (fallbackUrl ?? '').trim(),
+        autoName: auto,
+      );
+      setState(() => subscriptions.add(sub));
+      await savePersistentData();
+      await updateSubscription(sub);
+      return;
+    }
+
+    final report = buildImport(text, subId: 'manual', subName: 'دستی');
+    final existingUrls = servers
+        .where((s) => s.subId == 'manual')
+        .map((s) => s.rawUrl)
+        .toSet();
+    final fresh = report.servers
+        .where((s) => s.rawUrl.isEmpty || !existingUrls.contains(s.rawUrl))
+        .toList();
+
+    if (fresh.isNotEmpty) {
+      setState(() {
+        servers.addAll(fresh);
+        if (selectedServerId.isEmpty) selectedServerId = fresh.first.id;
+      });
+      await savePersistentData();
+    }
+
+    if (report.failed > 0 ||
+        report.unsupported.isNotEmpty ||
+        report.added == 0) {
+      _showReportSheet('افزودن دستی', report);
+    } else if (fresh.isEmpty) {
+      showSnack('این سرورها قبلاً در لیست وجود داشتند.');
+    } else {
+      showSnack('${fresh.length} سرور جدید با موفقیت اضافه شد! 🎉');
+    }
+  }
+
+  void _showAddSheet() {
+    final textCtrl = TextEditingController();
+    final nameCtrl = TextEditingController();
+    final fallbackCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3B82F6).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.add_link_rounded,
+                          color: Color(0xFF3B82F6)),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'افزودن سرور یا اشتراک',
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'لینک vless، vmess، trojan، ss، socks یا لینک اشتراک یا JSON را بچسبانید.',
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: textCtrl,
+                  minLines: 3,
+                  maxLines: 6,
+                  textDirection: TextDirection.ltr,
+                  decoration: InputDecoration(
+                    hintText: 'vless://... یا https://...',
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.content_paste_rounded),
+                      tooltip: 'چسباندن از کلیپ‌بورد',
+                      onPressed: () async {
+                        final d = await Clipboard.getData(Clipboard.kTextPlain);
+                        if (d?.text != null) textCtrl.text = d!.text!.trim();
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: EdgeInsets.zero,
+                  title: const Text('تنظیمات بیشتر',
+                      style: TextStyle(fontSize: 13, color: Colors.grey)),
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'نام دلخواه (اختیاری)',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: fallbackCtrl,
+                      textDirection: TextDirection.ltr,
+                      decoration: const InputDecoration(
+                        labelText: 'لینک جایگزین (اختیاری)',
+                        hintText: 'https://backup-domain.com/sub/...',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text('افزودن'),
+                  onPressed: () {
+                    final t = textCtrl.text;
+                    final n = nameCtrl.text;
+                    final fb = fallbackCtrl.text;
+                    if (t.trim().isEmpty) return;
+                    Navigator.pop(ctx);
+                    processInput(t, name: n, fallbackUrl: fb);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------ ویرایشگر JSON سرور
+
+  Widget _kv(String k, String v) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Text(k, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              v,
+              textAlign: TextAlign.end,
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _infoSheet({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required Widget body,
+    required List<Widget> Function(BuildContext ctx) actions,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(icon, color, title),
+              const SizedBox(height: 16),
+              body,
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  for (var i = 0; i < actions(ctx).length; i++) ...[
+                    if (i > 0) const SizedBox(width: 10),
+                    Expanded(child: actions(ctx)[i]),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sheetHeader(IconData icon, Color color, String title, [String? subtitle]) {
+    return Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(icon, color: color),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+              if (subtitle != null)
+                Text(subtitle,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showJsonEditorModal(ServerItem server) {
+    String prettyJson = server.fullJsonConfig;
+    try {
+      final decoded = jsonDecode(server.fullJsonConfig);
+      prettyJson = const JsonEncoder.withIndent('  ').convert(decoded);
+    } catch (_) {}
+
+    final jsonCtrl = TextEditingController(text: prettyJson);
+    final remarkCtrl = TextEditingController(text: server.remark);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(Icons.data_object_rounded, const Color(0xFF8B5CF6),
+                  'کانفیگ سرور', 'ویرایش JSON هستهٔ Xray'),
+              const SizedBox(height: 14),
+              TextField(
+                controller: remarkCtrl,
+                decoration: const InputDecoration(labelText: 'نام سرور'),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 260,
+                child: TextField(
+                  controller: jsonCtrl,
+                  maxLines: null,
+                  expands: true,
+                  textDirection: TextDirection.ltr,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.copy_rounded),
+                      label: const Text('کپی'),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: jsonCtrl.text));
+                        showSnack('کانفیگ JSON کپی شد');
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      icon: const Icon(Icons.save_rounded),
+                      label: const Text('ذخیره'),
+                      onPressed: () {
+                        try {
+                          final parsed = jsonDecode(jsonCtrl.text);
+                          if (parsed is! Map) {
+                            throw const FormatException(
+                                'JSON باید یک شیء باشد');
+                          }
+                          setState(() {
+                            server.remark = remarkCtrl.text.trim().isEmpty
+                                ? server.remark
+                                : remarkCtrl.text.trim();
+                            server.fullJsonConfig = jsonEncode(parsed);
+                          });
+                          savePersistentData();
+                          Navigator.pop(ctx);
+                          showSnack('تغییرات کانفیگ ذخیره شد');
+                        } catch (e) {
+                          showSnack('خطای سینتکس JSON: $e');
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------ دیالوگ گزارش
+
+  Future<bool> _confirmSheet({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String message,
+    required String confirmLabel,
+  }) async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(icon, color, title),
+              const SizedBox(height: 14),
+              Text(message, style: const TextStyle(fontSize: 13, height: 1.6)),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('انصراف'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: color),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: Text(confirmLabel),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return ok == true;
+  }
+
+  void _showReportSheet(String title, ImportReport r) {
+    if (!mounted) return;
+    final lines = <String>[];
+    if (r.added > 0) lines.add('✅ ${r.added} سرور با موفقیت خوانده شد');
+    if (r.failed > 0) {
+      lines.add('⚠️ ${r.failed} لینک ناقص بود یا قابل پردازش نبود');
+    }
+    if (r.unsupported.isNotEmpty) {
+      final parts = r.unsupported.entries
+          .map((e) => '${e.key} (${e.value})')
+          .join('، ');
+      lines.add('🚫 پروتکل خارج از هسته Xray: $parts');
+    }
+    if (r.looksLikeHtml) {
+      lines.add(
+          '🌐 سرور یک صفحهٔ وب (HTML) برگرداند. لینک اشتباه است یا نیاز به ثبت HWID دارد.');
+    }
+    if (r.looksLikeClash) {
+      lines.add(
+          '📄 خروجی به فرمت Clash است. لطفاً لینک استاندارد V2Ray/Xray یا Base64 وارد کنید.');
+    }
+    if (r.httpStatus != 0 && r.httpStatus != 200 && r.added == 0) {
+      lines.add('❌ کد پاسخ سرور: ${r.httpStatus}');
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(Icons.fact_check_rounded, const Color(0xFF3B82F6),
+                  'گزارش پردازش', title),
+              const SizedBox(height: 14),
+              for (final l in lines)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(l, style: const TextStyle(fontSize: 13, height: 1.6)),
+                ),
+              if (r.rawPreview.isNotEmpty && r.added == 0) ...[
+                const SizedBox(height: 6),
+                const Text('پیش‌نمایش پاسخ دریافتی:',
+                    style: TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: SelectableText(
+                    r.rawPreview,
+                    textDirection: TextDirection.ltr,
+                    style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('متوجه شدم'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void deleteServer(ServerItem s) {
+    setState(() {
+      servers.removeWhere((x) => x.id == s.id);
+      if (selectedServerId == s.id) {
+        selectedServerId = servers.isNotEmpty ? servers.first.id : '';
+      }
+    });
+    savePersistentData();
+  }
+
+  Future<void> editSubscriptionDialog(SubscriptionItem sub) async {
+    final nameCtrl = TextEditingController(text: sub.name);
+    final urlCtrl = TextEditingController(text: sub.url);
+    final fbCtrl = TextEditingController(text: sub.fallbackUrl);
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(Icons.rss_feed_rounded, const Color(0xFF3B82F6),
+                  'تنظیمات اشتراک'),
+              const SizedBox(height: 14),
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'نام اشتراک'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: urlCtrl,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(labelText: 'لینک اصلی'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: fbCtrl,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(
+                  labelText: 'لینک جایگزین (اختیاری)',
+                ),
+              ),
+              const SizedBox(height: 14),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('ذخیره'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (saved == true) {
+      setState(() {
+        sub.name =
+            nameCtrl.text.trim().isEmpty ? sub.name : nameCtrl.text.trim();
+        sub.url = urlCtrl.text.trim().isEmpty ? sub.url : urlCtrl.text.trim();
+        sub.fallbackUrl = fbCtrl.text.trim();
+        sub.autoName = false;
+        for (final s in servers.where((s) => s.subId == sub.id)) {
+          s.subName = sub.name;
+        }
+      });
+      await savePersistentData();
+      showSnack('اشتراک بروزرسانی شد');
+    }
+  }
+
+  Future<void> deleteSubscription(SubscriptionItem sub) async {
+    final ok = await _confirmSheet(
+      icon: Icons.delete_outline_rounded,
+      color: Colors.redAccent,
+      title: 'حذف اشتراک',
+      message: 'اشتراک «${sub.name}» و تمام سرورهای آن حذف شوند؟',
+      confirmLabel: 'حذف',
+    );
+    if (ok != true) return;
+    setState(() {
+      servers.removeWhere((s) => s.subId == sub.id);
+      subscriptions.removeWhere((s) => s.id == sub.id);
+      if (selectedGroupFilter == sub.id) selectedGroupFilter = 'ALL';
+      if (!servers.any((s) => s.id == selectedServerId)) {
+        selectedServerId = servers.isNotEmpty ? servers.first.id : '';
+      }
+    });
+    await savePersistentData();
+  }
+
+  void showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, textDirection: TextDirection.rtl),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------ UI
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(body: _buildHomeTab()),
+    );
+  }
+
+  String _fmtSpeed(int bps) {
+    if (bps < 1024) return '$bps B/s';
+    if (bps < 1024 * 1024) return '${(bps / 1024).toStringAsFixed(1)} KB/s';
+    return '${(bps / (1024 * 1024)).toStringAsFixed(2)} MB/s';
+  }
+
+  String _fmtBytes(int b) {
+    if (b < 1024) return '$b B';
+    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
+    if (b < 1024 * 1024 * 1024) return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
+  final Map<String, String> _countryByIp = {};
+
+  Future<void> _resolveServerCountry(ServerItem server) async {
+    if (server.countryCode.isNotEmpty) return;
+    final ep = extractServerEndpoint(server.fullJsonConfig);
+    if (ep == null) return;
+    try {
+      final addr = await InternetAddress.lookup(ep.host)
+          .timeout(const Duration(seconds: 4));
+      if (addr.isEmpty) return;
+      final ip = addr.first.address;
+      var code = _countryByIp[ip] ?? '';
+      if (code.isEmpty) {
+        final info = await _fetchJson('https://api.country.is/$ip');
+        code = (info?['country'] ?? '').toString();
+        if (code.isNotEmpty) _countryByIp[ip] = code;
+      }
+      if (code.isNotEmpty) server.countryCode = code;
+    } catch (_) {}
+  }
+
+  Widget _speedItem(IconData icon, Color color, String text) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          textDirection: TextDirection.ltr,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+
+  Widget _speedRow() {
+    final st = v2rayStatus;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _speedItem(Icons.arrow_downward_rounded,
+                const Color(0xFF22C55E), _fmtSpeed(st.downloadSpeed)),
+          ),
+          Expanded(
+            child: _speedItem(Icons.arrow_upward_rounded,
+                const Color(0xFFA855F7), _fmtSpeed(st.uploadSpeed)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String text) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Colors.grey,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+
+  Widget _settingsCard(List<Widget> children) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            children[i],
+            if (i < children.length - 1)
+              const Divider(height: 1, indent: 16, endIndent: 16),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _settingsSwitch({
+    required String title,
+    String? subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return SwitchListTile(
+      title: Text(title, style: const TextStyle(fontSize: 14)),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      value: value,
+      onChanged: (v) {
+        onChanged(v);
+        savePersistentData();
+      },
+    );
+  }
+
+  Widget _settingsTile({
+    required IconData icon,
+    Color? color,
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+    VoidCallback? onTap,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(title, style: TextStyle(fontSize: 14, color: color)),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      trailing: trailing ?? const Icon(Icons.chevron_right_rounded, size: 20),
+      onTap: onTap,
+    );
+  }
+
+  void Function()? _settingsRebuild;
+
+  void _applySetting(VoidCallback change) {
+    setState(change);
+    _settingsRebuild?.call();
+  }
+
+  void _openSettings() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          _settingsRebuild = () => setLocal(() {});
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: _buildSettingsTab(),
+          );
+        },
+      ),
+    )).then((_) => _settingsRebuild = null);
+  }
+
+  void _showAddChooser() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.content_paste_rounded),
+                title: const Text('وارد کردن از کلیپ‌بورد'),
+                subtitle: const Text('لینک کپی‌شده را همین حالا اضافه کن'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  importFromClipboard();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_note_rounded),
+                title: const Text('افزودن دستی'),
+                subtitle: const Text('لینک یا JSON را خودت وارد کن'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showAddSheet();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _homeHeader() {
+    return Row(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.add_rounded),
+          tooltip: 'افزودن سرور یا اشتراک',
+          onPressed: _showAddChooser,
+        ),
+        const Expanded(
+          child: Center(
+            child: Text(
+              'SHIN',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2,
+              ),
+            ),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.settings_rounded),
+          tooltip: 'تنظیمات',
+          onPressed: _openSettings,
+        ),
+      ],
+    );
+  }
+
+  List<ServerItem> _orderServers(List<ServerItem> list, {bool sort = true}) {
+    if (!sort) return list;
+    int rank(ServerItem s) {
+      final p = s.pingFor(PingMode.real);
+      if (p == null) return 2;
+      if (p <= 0) return 3;
+      return 1;
+    }
+    final copy = List<ServerItem>.from(list);
+    copy.sort((a, b) {
+      final r = rank(a).compareTo(rank(b));
+      if (r != 0) return r;
+      return (a.pingFor(PingMode.real) ?? 0).compareTo(b.pingFor(PingMode.real) ?? 0);
+    });
+    return copy;
+  }
+
+  Widget _usageBar(double ratio, String text, ColorScheme scheme) {
+    final color = ratio > 0.9 ? Colors.redAccent : scheme.primary;
+    return Container(
+      height: 24,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: scheme.primary.withOpacity(0.08),
+        border: Border.all(color: scheme.primary.withOpacity(0.25)),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: ratio,
+              heightFactor: 1,
+              child: Container(color: color.withOpacity(0.22)),
+            ),
+          ),
+          Text(
+            text,
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _groupSection({
+    required String id,
+    required String title,
+    SubscriptionItem? sub,
+    required List<ServerItem> servers,
+  }) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: _groupSectionBody(
+        id: id,
+        title: title,
+        sub: sub,
+        servers: servers,
+      ),
+    );
+  }
+
+  Widget _groupSectionBody({
+    required String id,
+    required String title,
+    SubscriptionItem? sub,
+    required List<ServerItem> servers,
+  }) {
+    final collapsed = _collapsedGroups.contains(id);
+    final sorted = _sortedGroups.contains(id);
+    final byCountry = _countryGroups.contains(id);
+    final testing = _testingGroups.contains(id);
+    final scheme = Theme.of(context).colorScheme;
+    final divider = Theme.of(context).dividerColor;
+    final used = sub?.usedBytes ?? 0;
+    final total = sub?.totalBytes ?? 0;
+    final unlimited = total <= 0;
+    final ratio = unlimited ? 1.0 : (used / total).clamp(0.0, 1.0).toDouble();
+    final usageText =
+        unlimited ? 'نامحدود' : '${_fmtBytes(used)} / ${_fmtBytes(total)}';
+    var expiry = 'بدون انقضا';
+    if (sub != null && sub.expireSec > 0) {
+      final days = DateTime.fromMillisecondsSinceEpoch(sub.expireSec * 1000)
+          .difference(DateTime.now())
+          .inDays;
+      expiry = days >= 0 ? 'انقضا: $days روز' : 'منقضی شده';
+    }
+    final ordered = _orderServers(servers, sort: sorted);
+
+    void toggleCollapsed() {
+      setState(() {
+        if (collapsed) {
+          _collapsedGroups.remove(id);
+        } else {
+          _collapsedGroups.add(id);
+        }
+      });
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: divider),
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: collapsed ? 'باز کردن' : 'بستن',
+                    icon: Icon(collapsed
+                        ? Icons.chevron_left_rounded
+                        : Icons.expand_more_rounded),
+                    onPressed: toggleCollapsed,
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: toggleCollapsed,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            sub == null
+                                ? '${servers.length} سرور'
+                                : '${servers.length} سرور  •  بروزرسانی ${fmtAgo(sub.updatedAt)}',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (testing)
+                    const Padding(
+                      padding: EdgeInsets.all(10),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      tooltip: 'تست پینگ این اشتراک',
+                      icon: const Icon(Icons.speed_rounded, size: 20),
+                      onPressed: () => testGroupPings(id, servers),
+                    ),
+                  if (sub != null)
+                    sub.isUpdating
+                        ? const Padding(
+                            padding: EdgeInsets.all(10),
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : IconButton(
+                            tooltip: 'بروزرسانی اشتراک',
+                            icon: const Icon(Icons.refresh_rounded, size: 20),
+                            onPressed: () => updateSubscription(sub),
+                          ),
+                  PopupMenuButton<String>(
+                    tooltip: 'گزینه‌ها',
+                    icon: const Icon(Icons.more_horiz_rounded),
+                    onSelected: (v) {
+                      if (v == 'sort') {
+                        setState(() {
+                          if (sorted) {
+                            _sortedGroups.remove(id);
+                          } else {
+                            _sortedGroups.add(id);
+                          }
+                        });
+                      }
+                      if (v == 'country') {
+                        setState(() {
+                          if (byCountry) {
+                            _countryGroups.remove(id);
+                          } else {
+                            _countryGroups.add(id);
+                          }
+                        });
+                        savePersistentData();
+                        if (!byCountry) _ensureCountries(servers);
+                      }
+                      if (sub != null && v == 'edit') {
+                        editSubscriptionDialog(sub);
+                      }
+                      if (sub != null && v == 'copy') {
+                        Clipboard.setData(ClipboardData(text: sub.url));
+                        showSnack('لینک اشتراک کپی شد');
+                      }
+                      if (sub != null && v == 'delete') {
+                        deleteSubscription(sub);
+                      }
+                    },
+                    itemBuilder: (_) => <PopupMenuEntry<String>>[
+                      PopupMenuItem<String>(
+                        value: 'sort',
+                        child: Text(sorted
+                            ? 'مرتب‌سازی: پیش‌فرض'
+                            : 'مرتب‌سازی: بر اساس پینگ'),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'country',
+                        child: Text(byCountry
+                            ? 'گروه‌بندی: بدون کشور'
+                            : 'گروه‌بندی: بر اساس کشور'),
+                      ),
+                      if (sub != null) ...[
+                        const PopupMenuItem<String>(
+                          value: 'edit',
+                          child: Text('تنظیمات اشتراک'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'copy',
+                          child: Text('کپی لینک'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'delete',
+                          child: Text('حذف'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              color: scheme.primary.withOpacity(0.05),
+              padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'جزئیات',
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(Icons.info_outline_rounded, color: scheme.primary),
+                    onPressed: () => _infoSheet(
+                      icon: Icons.info_outline_rounded,
+                      color: scheme.primary,
+                      title: title,
+                      body: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _kv('تعداد سرور', '${servers.length}'),
+                          _kv('حجم مصرف', usageText),
+                          _kv('انقضا', expiry),
+                          if (sub != null)
+                            _kv('آخرین بروزرسانی', fmtAgo(sub.updatedAt)),
+                        ],
+                      ),
+                      actions: (ctx) => [
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('بستن'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(child: _usageBar(ratio, usageText, scheme)),
+                  const SizedBox(width: 8),
+                  Text(
+                    expiry,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
+                  if (sub != null)
+                    IconButton(
+                      tooltip: 'کپی لینک',
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(Icons.link_rounded, color: scheme.primary),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: sub.url));
+                        showSnack('لینک اشتراک کپی شد');
+                      },
+                    ),
+                ],
+              ),
+            ),
+            if (!collapsed) ...[
+              Divider(height: 1, color: divider),
+              if (byCountry)
+                _countryBlocks(servers, sorted)
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < ordered.length; i++) ...[
+                      _serverTile(ordered[i]),
+                      if (i < ordered.length - 1)
+                        Divider(height: 1, color: divider),
+                    ],
+                  ],
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _ensureCountries(List<ServerItem> list) async {
+    final missing = list.where((x) => x.countryCode.isEmpty).toList();
+    if (missing.isEmpty) return;
+    var next = 0;
+    Future<void> worker() async {
+      while (mounted && next < missing.length) {
+        final server = missing[next++];
+        await _resolveServerCountry(server);
+        if (server.countryCode.isEmpty) {
+          server.countryCode = detectCountryFromText(server.remark);
+        }
+        if (mounted) setState(() {});
+      }
+    }
+    await Future.wait([
+      for (var i = 0; i < min(kPingConcurrency, missing.length); i++) worker(),
+    ]);
+    await savePersistentData();
+  }
+
+  Widget _countryBlocks(List<ServerItem> list, bool sorted) {
+    final divider = Theme.of(context).dividerColor;
+    final buckets = <String, List<ServerItem>>{};
+    for (final server in list) {
+      final code = server.countryCode.isEmpty ? '??' : server.countryCode.toUpperCase();
+      buckets.putIfAbsent(code, () => <ServerItem>[]).add(server);
+    }
+    final keys = buckets.keys.toList()
+      ..sort((a, b) {
+        if (a == '??') return 1;
+        if (b == '??') return -1;
+        return (kCountryNames[a] ?? a).compareTo(kCountryNames[b] ?? b);
+      });
+
+    final children = <Widget>[];
+    for (final key in keys) {
+      final items = _orderServers(buckets[key]!, sort: sorted);
+      children.add(Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+        child: Row(
+          children: [
+            Text(key == '??' ? '🌐' : flagOf(key),
+                style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                key == '??' ? 'نامشخص' : (kCountryNames[key] ?? key),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+            ),
+            Text('${items.length}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+      ));
+      for (var i = 0; i < items.length; i++) {
+        children.add(_serverTile(items[i]));
+        if (i < items.length - 1) children.add(Divider(height: 1, color: divider));
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
+    );
+  }
+
+  Future<void> testGroupPings(String id, List<ServerItem> list) async {
+    if (_testingGroups.contains(id)) return;
+    final queue = isConnected
+        ? list.where((s) => s.id == selectedServerId).toList()
+        : List<ServerItem>.from(list);
+    if (queue.isEmpty) {
+      showSnack('سروری برای تست در این بخش نیست');
+      return;
+    }
+    setState(() => _testingGroups.add(id));
+    var next = 0;
+    Future<void> worker() async {
+      while (mounted && next < queue.length) {
+        final server = queue[next++];
+        await pingSingleServer(server, save: false);
+      }
+    }
+    try {
+      final workers = min(kPingConcurrency, queue.length);
+      await Future.wait([for (var i = 0; i < workers; i++) worker()]);
+    } finally {
+      if (mounted) setState(() => _testingGroups.remove(id));
+      await savePersistentData();
+    }
+  }
+
+  Widget _buildHomeTab() {
+    final pending = _pendingTarget;
+    final connected = pending == null ? isConnected : false;
+    final connecting = pending != null ||
+        isConnecting ||
+        v2rayStatus.state == 'DISCONNECTING';
+    final accent = connected ? const Color(0xFF22C55E) : const Color(0xFF4F7CFF);
+    final statusTitle = pending == false
+        ? 'در حال قطع...'
+        : connected
+            ? 'متصل'
+            : connecting
+                ? 'در حال اتصال...'
+                : 'برای اتصال بزنید';
+    final active = selectedServer;
+
+    final grouped = <String, List<ServerItem>>{};
+    for (final server in servers) {
+      grouped.putIfAbsent(server.subId, () => <ServerItem>[]).add(server);
+    }
+
+    final sections = <Widget>[
+      for (final sub in subscriptions)
+        _groupSection(
+          id: sub.id,
+          title: sub.name,
+          sub: sub,
+          servers: grouped[sub.id] ?? const <ServerItem>[],
+        ),
+      if ((grouped['manual'] ?? const <ServerItem>[]).isNotEmpty)
+        _groupSection(
+          id: 'manual',
+          title: 'سرورهای دستی',
+          servers: grouped['manual']!,
+        ),
+    ];
+
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),
+            child: _homeHeader(),
+          ),
+          if (isTestingAll)
+            LinearProgressIndicator(
+              value: pingTestsTotal == 0 ? null : pingTestsCompleted / pingTestsTotal,
+              minHeight: 2,
+            ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
+                Center(
+                  child: _PowerButton(
+                    lowPower: lowPowerMode,
+                    connected: connected,
+                    connecting: connecting,
+                    accent: accent,
+                    onTap: toggleVpn,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Center(
+                  child: Text(
+                    statusTitle,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (connecting)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        'لطفاً کمی صبر کنید',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                if (connected)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        '${v2rayStatus.duration}${active != null ? '  •  ${active.remark}' : ''}',
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                if (connected) ...[
+                  const SizedBox(height: 14),
+                  _speedRow(),
+                  const SizedBox(height: 8),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: active == null || active.isPinging
+                          ? null
+                          : () => pingSingleServer(active, mode: PingMode.real),
+                      icon: const Icon(Icons.speed_rounded, size: 18),
+                      label: Text(
+                        active == null
+                            ? 'پینگ سرور فعال'
+                            : active.isPinging
+                                ? 'در حال تست...'
+                                : active.pingFor(PingMode.real) == null
+                                    ? 'تست پینگ سرور فعال'
+                                    : active.pingFor(PingMode.real)! <= 0
+                                        ? 'پینگ: خطا'
+                                        : 'پینگ: ${active.pingFor(PingMode.real)} ms',
+                        textDirection: TextDirection.ltr,
+                      ),
+                    ),
+                  ),
+                ],
+                if (availableVersion.isNotEmpty) _updateBanner(),
+                const SizedBox(height: 24),
+                if (servers.isEmpty)
+                  _emptyState(
+                    icon: Icons.dns_outlined,
+                    title: 'هنوز سروری اضافه نشده است',
+                    subtitle: 'لینک سرور یا اشتراک را اضافه کنید.',
+                    actionLabel: 'افزودن سرور',
+                    onAction: _showAddSheet,
+                  )
+                else
+                  ...sections,
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 40, color: color),
+            ),
+            const SizedBox(height: 16),
+            Text(title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(subtitle,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey, height: 1.6)),
+            ],
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.add_rounded),
+                label: Text(actionLabel),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _pingTone(int? ping) {
+    if (ping == null) return Colors.grey;
+    if (ping <= 0) return const Color(0xFFFF5252);
+    if (ping <= 200) return const Color(0xFF22C55E);
+    if (ping <= 400) return const Color(0xFFFFA726);
+    return const Color(0xFFFF5252);
+  }
+
+  Widget _serverTile(ServerItem server) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: _serverTileBody(server),
+    );
+  }
+
+  Widget _serverTileBody(ServerItem server) {
+    final isSelected = server.id == selectedServerId;
+    final ping = server.pingFor(PingMode.real);
+    final tone = _pingTone(ping);
+    final accent = Theme.of(context).colorScheme.primary;
+    final busy = server.busyPings.contains(PingMode.real.name);
+
+    return Material(
+      color: isSelected ? accent.withOpacity(0.08) : Colors.transparent,
+      child: InkWell(
+        onLongPress: () => _showServerSheet(server),
+        onTap: () async {
+          setState(() => selectedServerId = server.id);
+          await savePersistentData();
+          await reconnectIfNeeded();
+        },
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      server.remark,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      server.protocol,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                ping == null ? '—' : (ping <= 0 ? 'خطا' : '$ping ms'),
+                textDirection: TextDirection.ltr,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: tone,
+                ),
+              ),
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                tooltip: 'تست پینگ این سرور',
+                icon: busy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.speed_rounded, size: 18),
+                onPressed: server.isPinging ? null : () => pingSingleServer(server),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showServerSheet(ServerItem server) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  server.remark,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+                subtitle: Text(
+                  '${server.protocol} • ${server.subName}',
+                  style: const TextStyle(fontSize: 10),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_note_rounded),
+                title: const Text('مشاهده و ویرایش کانفیگ JSON'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showJsonEditorModal(server);
+                },
+              ),
+              if (server.rawUrl.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.link_rounded),
+                  title: const Text('کپی لینک اشتراک‌گذاری سرور'),
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: server.rawUrl));
+                    Navigator.pop(ctx);
+                    showSnack('لینک سرور کپی شد');
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.speed_rounded),
+                title: const Text('تست پینگ این سرور'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  pingSingleServer(server);
+                },
+              ),
+              ListTile(
+                leading:
+                    const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                title: const Text(
+                  'حذف سرور',
+                  style: TextStyle(color: Colors.red),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  deleteServer(server);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _editPingUrl() {
+    final controller = TextEditingController(text: pingTestUrl);
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(Icons.link_rounded, const Color(0xFF3B82F6),
+                  'آدرس تست پینگ'),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(hintText: 'https://...'),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('انصراف'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        final v = controller.text.trim();
+                        if (v.startsWith('https://') || v.startsWith('http://')) {
+                          _applySetting(() => pingTestUrl = v);
+                          savePersistentData();
+                        }
+                        Navigator.pop(ctx);
+                      },
+                      child: const Text('ذخیره'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openAppsPage() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => _buildAppsPage(),
+    ));
+  }
+
+  void _autoPickIranianApps({bool force = false}) {
+    if (iranianAutoDone && !force) return;
+    var added = 0;
+    for (final app in _installedApps) {
+      final pkg = app['package']!;
+      final matched = isIranianPackage(pkg) || isIranianBankLabel(app['name']!);
+      if (matched && bypassApps.add(pkg)) added++;
+    }
+    iranianAutoDone = true;
+    savePersistentData();
+    if (mounted) {
+      showSnack(added > 0
+          ? '$added برنامهٔ ایرانی به‌صورت خودکار خارج از VPN قرار گرفت'
+          : 'برنامهٔ ایرانی جدیدی پیدا نشد');
+    }
+  }
+
+  Future<void> _loadInstalledApps() async {
+    try {
+      final raw = await kQuickControlsChannel
+              .invokeListMethod<dynamic>('getLaunchableApps') ??
+          <dynamic>[];
+      final apps = >[];
+      for (final item in raw) {
+        if (item is! Map) continue;
+        final pkg = (item['package'] ?? '').toString();
+        if (pkg.isEmpty) continue;
+        apps.add({'name': (item['name'] ?? pkg).toString(), 'package': pkg});
+      }
+      apps.sort((a, b) => a['name']!.toLowerCase().compareTo(b['name']!.toLowerCase()));
+      _installedApps = apps;
+      _autoPickIranianApps();
+    } catch (_) {
+      showSnack('فهرست برنامه‌ها گرفته نشد');
+    }
+    _appsLoading = false;
+  }
+
+  Widget _buildAppsPage() {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: StatefulBuilder(
+        builder: (ctx, setLocal) {
+          if (_installedApps.isEmpty && !_appsLoading) {
+            _appsLoading = true;
+            _loadInstalledApps().then((_) {
+              if (ctx.mounted) setLocal(() {});
+            });
+          }
+          final q = _appsQuery.toLowerCase();
+          final shown = _installedApps
+              .where((a) =>
+                  q.isEmpty ||
+                  a['name']!.toLowerCase().contains(q) ||
+                  a['package']!.contains(q))
+              .toList();
+
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('برنامه‌های خارج از VPN'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    _autoPickIranianApps(force: true);
+                    setLocal(() {});
+                  },
+                  child: const Text('ایرانی‌ها'),
+                ),
+              ],
+            ),
+            body: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: TextField(
+                    onChanged: (v) {
+                      _appsQuery = v;
+                      setLocal(() {});
+                    },
+                    decoration: const InputDecoration(
+                      hintText: 'جستجوی برنامه',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'برنامه‌های انتخاب‌شده مستقیم و بدون VPN وصل می‌شوند. تغییرات بعد از قطع و وصل مجدد اعمال می‌شود.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.6),
+                  ),
+                ),
+                Expanded(
+                  child: _appsLoading && _installedApps.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : ListView.builder(
+                          itemCount: shown.length,
+                          itemBuilder: (_, i) {
+                            final app = shown[i];
+                            final pkg = app['package']!;
+                            return CheckboxListTile(
+                              value: bypassApps.contains(pkg),
+                              title: Text(app['name']!),
+                              subtitle: Text(pkg,
+                                  textDirection: TextDirection.ltr,
+                                  style: const TextStyle(fontSize: 11)),
+                              onChanged: (v) {
+                                _applySetting(() {
+                                  if (v == true) {
+                                    bypassApps.add(pkg);
+                                  } else {
+                                    bypassApps.remove(pkg);
+                                  }
+                                });
+                                setLocal(() {});
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSettingsTab() {
+    return Scaffold(
+      appBar: AppBar(title: const Text('تنظیمات')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+        children: [
+          _sectionTitle('ظاهر'),
+          SegmentedButton<AppThemeModeSetting>(
+            segments: const [
+              ButtonSegment(
+                value: AppThemeModeSetting.system,
+                label: Text('سیستم'),
+                icon: Icon(Icons.brightness_auto_rounded),
+              ),
+              ButtonSegment(
+                value: AppThemeModeSetting.dark,
+                label: Text('تیره'),
+                icon: Icon(Icons.dark_mode_rounded),
+              ),
+              ButtonSegment(
+                value: AppThemeModeSetting.light,
+                label: Text('روشن'),
+                icon: Icon(Icons.light_mode_rounded),
+              ),
+            ],
+            selected: {widget.currentTheme},
+            onSelectionChanged: (val) {
+              widget.onThemeChanged(val.first);
+              _settingsRebuild?.call();
+            },
+          ),
+          _sectionTitle('برنامه‌ها'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.apps_rounded,
+              title: 'برنامه‌های خارج از VPN',
+              subtitle: '${bypassApps.length} برنامه انتخاب شده',
+              onTap: _openAppsPage,
+            ),
+          ]),
+          _sectionTitle('مسیریابی'),
+          _settingsCard([
+            _settingsSwitch(
+              title: 'بای‌پس ایران',
+              subtitle: 'دامنه‌های .ir و آی‌پی‌های ایران مستقیم باز می‌شوند',
+              value: bypassIran,
+              onChanged: (v) => _applySetting(() => bypassIran = v),
+            ),
+            _settingsSwitch(
+              title: 'بای‌پس شبکهٔ محلی',
+              subtitle: 'ترافیک شبکهٔ محلی مستقیم وصل می‌شود',
+              value: bypassLan,
+              onChanged: (v) => _applySetting(() => bypassLan = v),
+            ),
+          ]),
+          _sectionTitle('پیشرفته'),
+          _settingsCard([
+            _settingsSwitch(
+              title: 'تجمیع اتصال (Mux)',
+              subtitle: 'برای Reality و XHTTP خاموش بماند',
+              value: enableMux,
+              onChanged: (v) => _applySetting(() => enableMux = v),
+            ),
+            _settingsSwitch(
+              title: 'پینگ خودکار هنگام باز شدن',
+              subtitle: 'بعد از هر بار باز کردن برنامه، پینگ همهٔ سرورها گرفته شود',
+              value: autoPingOnOpen,
+              onChanged: (v) => _applySetting(() => autoPingOnOpen = v),
+            ),
+            _settingsSwitch(
+              title: 'بستن QUIC (UDP 443)',
+              subtitle: 'اگر اینستاگرام و بعضی سایت‌ها باز نمی‌شوند، روشن بماند',
+              value: blockQuic,
+              onChanged: (v) => _applySetting(() => blockQuic = v),
+            ),
+            _settingsSwitch(
+              title: 'IPv6',
+              subtitle: 'فقط اگر شبکه‌ات IPv6 دارد روشن کن',
+              value: enableIPv6,
+              onChanged: (v) => _applySetting(() => enableIPv6 = v),
+            ),
+            _settingsSwitch(
+              title: 'پذیرش TLS نامعتبر',
+              subtitle: 'گواهی‌های نامعتبر را قبول کن',
+              value: allowInsecureDefault,
+              onChanged: (v) => _applySetting(() => allowInsecureDefault = v),
+            ),
+            _settingsSwitch(
+              title: 'اعمال مسیریابی روی پینگ',
+              subtitle: 'قوانین بای‌پس را در پینگ اعمال کن',
+              value: pingBypassRouting,
+              onChanged: (v) => _applySetting(() => pingBypassRouting = v),
+            ),
+            _settingsSwitch(
+              title: 'بهترین از دو پینگ',
+              subtitle: 'دو درخواست بفرست و سریع‌تر را نگه دار',
+              value: pingBestOfTwo,
+              onChanged: (v) => _applySetting(() => pingBestOfTwo = v),
+            ),
+            ListTile(
+              title: const Text('مهلت پینگ', style: TextStyle(fontSize: 14)),
+              trailing: SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 5, label: Text('5s')),
+                  ButtonSegment(value: 15, label: Text('15s')),
+                ],
+                selected: {pingProxyTimeoutSec},
+                onSelectionChanged: (v) {
+                  _applySetting(() => pingProxyTimeoutSec = v.first);
+                  savePersistentData();
+                },
+              ),
+            ),
+            _settingsTile(
+              icon: Icons.link_rounded,
+              title: 'آدرس تست پینگ',
+              subtitle: pingTestUrl,
+              trailing: const Icon(Icons.edit_rounded, size: 18),
+              onTap: _editPingUrl,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('DNS ترجیحی',
+                      style: TextStyle(fontSize: 14)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final d in kDnsOptions)
+                        ChoiceChip(
+                          label: Text(d),
+                          selected: selectedDns == d,
+                          onSelected: (_) {
+                            _applySetting(() => selectedDns = d);
+                            savePersistentData();
+                          },
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ]),
+          _sectionTitle('پشتیبانی'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.system_update_rounded,
+              color: Colors.blueAccent,
+              title: 'بررسی بروزرسانی برنامه',
+              subtitle: 'نسخهٔ فعلی $kAppVersion',
+              trailing: isCheckingUpdate
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : null,
+              onTap: () => checkForAppUpdate(),
+            ),
+            _settingsTile(
+              icon: Icons.memory_rounded,
+              color: Colors.greenAccent,
+              title: 'هستهٔ Xray',
+              subtitle: coreVersion,
+              trailing: const Icon(Icons.sync_rounded, size: 20),
+              onTap: checkForXrayCoreUpdate,
+            ),
+            _settingsTile(
+              icon: Icons.fingerprint_rounded,
+              title: 'شناسهٔ دستگاه',
+              subtitle: hwid,
+              trailing: const Icon(Icons.copy_rounded, size: 18),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: hwid));
+                showSnack('شناسه HWID کپی شد');
+              },
+            ),
+          ]),
+          _sectionTitle('منطقهٔ خطر'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.delete_sweep_rounded,
+              color: Colors.redAccent,
+              title: 'حذف همهٔ سرورها و اشتراک‌ها',
+              onTap: _confirmClearAll,
+            ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmClearAll() async {
+    final ok = await _confirmSheet(
+      icon: Icons.delete_sweep_rounded,
+      color: Colors.redAccent,
+      title: 'پاک کردن کل اطلاعات؟',
+      message: 'تمام سرورها و اشتراک‌ها حذف خواهند شد.',
+      confirmLabel: 'حذف همه',
+    );
+    if (ok != true) return;
+    if (isConnected || isConnecting) await flutterV2ray.stopV2Ray();
+    setState(() {
+      servers.clear();
+      subscriptions.clear();
+      selectedServerId = '';
+      selectedGroupFilter = 'ALL';
+    });
+    await savePersistentData();
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  دکمهٔ اتصال مینیمال با هاله‌ی رنگی
+// ---------------------------------------------------------------------------
+
+class _PowerButton extends StatelessWidget {
+  final bool connected;
+  final bool connecting;
+  final Color accent;
+  final bool lowPower;
+  final VoidCallback onTap;
+
+  const _PowerButton({
+    this.lowPower = false,
+    required this.connected,
+    required this.connecting,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final card = Theme.of(context).cardColor;
+    final ringColor = connected ? accent : accent.withOpacity(0.35);
+    return GestureDetector(
+      onTap: onTap,
+      child: SizedBox(
+        width: 220,
+        height: 220,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (connecting)
+              const SizedBox(
+                width: 220,
+                height: 220,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+            AnimatedContainer(
+              duration: lowPower ? Duration.zero : const Duration(milliseconds: 300),
+              width: 190,
+              height: 190,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: card,
+                border: Border.all(color: ringColor, width: 2),
+              ),
+              child: Center(
+                child: Text(
+                  'S',
+                  style: TextStyle(
+                    fontSize: 84,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                    color: connected ? accent : Colors.grey,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  راهنمای اولین اجرا
+// ---------------------------------------------------------------------------
+
+class OnboardingScreen extends StatefulWidget {
+  const OnboardingScreen({super.key});
+
+  @override
+  State<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends State<OnboardingScreen> {
+  final PageController _controller = PageController();
+  int _index = 0;
+
+  static const List<(IconData, String, String)> _pages = [
+    (
+      Icons.shield_rounded,
+      'به SHIN خوش آمدید',
+      'اتصال امن و سریع با یک لمس روی دکمهٔ اصلی.'
+    ),
+    (
+      Icons.add_link_rounded,
+      'سرور اضافه کنید',
+      'لینک سرور یا اشتراک را از کلیپ‌بورد یا از دکمهٔ افزودن وارد کنید.'
+    ),
+    (
+      Icons.speed_rounded,
+      'بهترین سرور را پیدا کنید',
+      'با تست پینگ سرورها را مقایسه کنید یا از «بهترین سرور» استفاده کنید.'
+    ),
+  ];
+
+  Future<void> _finish() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_done', true);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final last = _index == _pages.length - 1;
+    const accent = Color(0xFF3B82F6);
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _finish,
+                    child: const Text('رد کردن'),
+                  ),
+                ),
+                Expanded(
+                  child: PageView(
+                    controller: _controller,
+                    onPageChanged: (i) => setState(() => _index = i),
+                    children: [
+                      for (final page in _pages)
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: accent.withOpacity(0.15),
+                              ),
+                              child: Icon(page.$1, size: 56, color: accent),
+                            ),
+                            const SizedBox(height: 28),
+                            Text(
+                              page.$2,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              page.$3,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                                height: 1.7,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < _pages.length; i++)
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: i == _index ? 20 : 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: i == _index
+                              ? accent
+                              : Colors.grey.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: last
+                        ? _finish
+                        : () => _controller.nextPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOut,
+                            ),
+                    child: Text(last ? 'شروع' : 'بعدی'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
