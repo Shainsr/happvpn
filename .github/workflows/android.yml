@@ -147,11 +147,31 @@ jobs:
             echo "storeFile=release-key.jks"
           } > android/key.properties
 
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER="$(grep '^version:' pubspec.yaml | sed 's/version: //; s/+.*//')"
+          fi
+          echo "name=$VER" >> "$GITHUB_OUTPUT"
+          echo "code=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
+          echo "Version $VER, build code $((100 + GITHUB_RUN_NUMBER))"
+
       - name: Build Split-per-ABI Release APKs
-        run: flutter build apk --release --split-per-abi
+        run: >
+          flutter build apk --release --split-per-abi
+          --build-name=${{ steps.ver.outputs.name }}
+          --build-number=${{ steps.ver.outputs.code }}
+          --dart-define=APP_VERSION=${{ steps.ver.outputs.name }}
 
       - name: Build Universal Release APK
-        run: flutter build apk --release
+        run: >
+          flutter build apk --release
+          --build-name=${{ steps.ver.outputs.name }}
+          --build-number=${{ steps.ver.outputs.code }}
+          --dart-define=APP_VERSION=${{ steps.ver.outputs.name }}
 
       - name: Verify APK signatures (fails the build if an APK is unsigned/invalid)
         run: |
