@@ -1674,7 +1674,8 @@ class _MainShellState extends State<MainShell> {
   bool isRequestingFromCreator = false;
 
   bool isProxyOnly = false;
-  bool lowPowerMode = false;
+  // حالت کم‌مصرف همیشه فعال است
+  final bool lowPowerMode = true;
   final Set<String> _sortedGroups = <String>{};
   final Set<String> _testingGroups = <String>{};
   final Set<String> _collapsedGroups = <String>{};
@@ -1969,7 +1970,6 @@ class _MainShellState extends State<MainShell> {
       await prefs.setBool('pingBestOfTwo', pingBestOfTwo);
       await prefs.setBool('pingBypassRouting', pingBypassRouting);
       await prefs.setString('pingTestUrl', pingTestUrl);
-      await prefs.setBool('lowPowerMode', lowPowerMode);
 
       final active = selectedServer;
       if (active != null) {
@@ -2041,7 +2041,6 @@ class _MainShellState extends State<MainShell> {
         pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? false;
         pingBypassRouting = prefs.getBool('pingBypassRouting') ?? false;
         pingTestUrl = prefs.getString('pingTestUrl') ?? kDefaultPingUrl;
-        lowPowerMode = prefs.getBool('lowPowerMode') ?? false;
         servers = loadedServers;
         subscriptions = loadedSubs;
         if (selectedServerId.isEmpty && servers.isNotEmpty) {
@@ -3951,13 +3950,50 @@ class _MainShellState extends State<MainShell> {
     )).then((_) => _settingsRebuild = null);
   }
 
+  void _showAddChooser() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.content_paste_rounded),
+                title: const Text('وارد کردن از کلیپ‌بورد'),
+                subtitle: const Text('لینک کپی‌شده را همین حالا اضافه کن'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  importFromClipboard();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_note_rounded),
+                title: const Text('افزودن دستی'),
+                subtitle: const Text('لینک یا JSON را خودت وارد کن'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showAddSheet();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _homeHeader() {
     return Row(
       children: [
         IconButton(
           icon: const Icon(Icons.add_rounded),
           tooltip: 'افزودن سرور یا اشتراک',
-          onPressed: _showAddSheet,
+          onPressed: _showAddChooser,
         ),
         const Expanded(
           child: Center(
@@ -4032,6 +4068,37 @@ class _MainShellState extends State<MainShell> {
     return parts.join('  •  ');
   }
 
+  Widget _usageBar(double ratio, String text, ColorScheme scheme) {
+    final color = ratio > 0.9 ? Colors.redAccent : scheme.primary;
+    return Container(
+      height: 24,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: scheme.primary.withOpacity(0.08),
+        border: Border.all(color: scheme.primary.withOpacity(0.25)),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: ratio,
+              heightFactor: 1,
+              child: Container(color: color.withOpacity(0.22)),
+            ),
+          ),
+          Text(
+            text,
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _groupSection({
     required String id,
     required String title,
@@ -4047,12 +4114,25 @@ class _MainShellState extends State<MainShell> {
     final total = sub?.totalBytes ?? 0;
     final unlimited = total <= 0;
     final ratio = unlimited ? 1.0 : (used / total).clamp(0.0, 1.0).toDouble();
-    String expiry = 'بدون انقضا';
+    final usageText =
+        unlimited ? 'نامحدود' : '${_fmtBytes(used)} / ${_fmtBytes(total)}';
+    var expiry = 'بدون انقضا';
     if (sub != null && sub.expireSec > 0) {
       final days = DateTime.fromMillisecondsSinceEpoch(sub.expireSec * 1000)
           .difference(DateTime.now())
           .inDays;
-      expiry = days >= 0 ? '$days روز مانده' : 'منقضی شده';
+      expiry = days >= 0 ? 'انقضا: $days روز' : 'منقضی شده';
+    }
+    final ordered = _orderServers(servers, sort: sorted);
+
+    void toggleCollapsed() {
+      setState(() {
+        if (collapsed) {
+          _collapsedGroups.remove(id);
+        } else {
+          _collapsedGroups.add(id);
+        }
+      });
     }
 
     return Padding(
@@ -4061,83 +4141,64 @@ class _MainShellState extends State<MainShell> {
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(color: divider),
         ),
         child: Column(
           children: [
+            // سربرگ: باز/بسته + نام + ابزارها
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 4, 4),
+              padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
               child: Row(
                 children: [
+                  IconButton(
+                    tooltip: collapsed ? 'باز کردن' : 'بستن',
+                    icon: Icon(collapsed
+                        ? Icons.chevron_left_rounded
+                        : Icons.expand_more_rounded),
+                    onPressed: toggleCollapsed,
+                  ),
                   Expanded(
                     child: InkWell(
-                      onTap: () {
-                        setState(() {
-                          if (collapsed) {
-                            _collapsedGroups.remove(id);
-                          } else {
-                            _collapsedGroups.add(id);
-                          }
-                        });
-                      },
-                      child: Row(
+                      onTap: toggleCollapsed,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            collapsed
-                                ? Icons.chevron_left_rounded
-                                : Icons.expand_more_rounded,
-                            size: 20,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
                             ),
+                          ),
+                          Text(
+                            sub == null
+                                ? '${servers.length} سرور'
+                                : '${servers.length} سرور  •  بروزرسانی ${fmtAgo(sub.updatedAt)}',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                         ],
                       ),
                     ),
                   ),
-                  testing
-                      ? const Padding(
-                          padding: EdgeInsets.all(10),
-                          child: SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      : IconButton(
-                          tooltip: 'تست پینگ این اشتراک',
-                          icon: const Icon(Icons.speed_rounded, size: 20),
-                          onPressed: () => testGroupPings(id, servers),
-                        ),
-                  IconButton(
-                    tooltip: sorted ? 'حذف مرتب‌سازی' : 'مرتب‌سازی بر اساس پینگ',
-                    icon: Icon(
-                      sorted ? Icons.sort_rounded : Icons.swap_vert_rounded,
-                      size: 20,
-                      color: sorted ? scheme.primary : null,
+                  if (testing)
+                    const Padding(
+                      padding: EdgeInsets.all(10),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      tooltip: 'تست پینگ این اشتراک',
+                      icon: const Icon(Icons.speed_rounded, size: 20),
+                      onPressed: () => testGroupPings(id, servers),
                     ),
-                    onPressed: () {
-                      setState(() {
-                        if (sorted) {
-                          _sortedGroups.remove(id);
-                        } else {
-                          _sortedGroups.add(id);
-                        }
-                      });
-                    },
-                  ),
-                  if (sub != null) ...[
+                  if (sub != null)
                     sub.isUpdating
                         ? const Padding(
                             padding: EdgeInsets.all(10),
@@ -4152,80 +4213,113 @@ class _MainShellState extends State<MainShell> {
                             icon: const Icon(Icons.refresh_rounded, size: 20),
                             onPressed: () => updateSubscription(sub),
                           ),
-                    PopupMenuButton<String>(
-                      onSelected: (v) {
-                        if (v == 'edit') editSubscriptionDialog(sub);
-                        if (v == 'copy') {
-                          Clipboard.setData(ClipboardData(text: sub.url));
-                          showSnack('لینک اشتراک کپی شد');
-                        }
-                        if (v == 'delete') deleteSubscription(sub);
-                      },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'edit', child: Text('تنظیمات اشتراک')),
-                        PopupMenuItem(value: 'copy', child: Text('کپی لینک')),
-                        PopupMenuItem(value: 'delete', child: Text('حذف')),
+                  PopupMenuButton<String>(
+                    tooltip: 'گزینه‌ها',
+                    icon: const Icon(Icons.more_horiz_rounded),
+                    onSelected: (v) {
+                      if (v == 'sort') {
+                        setState(() {
+                          if (sorted) {
+                            _sortedGroups.remove(id);
+                          } else {
+                            _sortedGroups.add(id);
+                          }
+                        });
+                      }
+                      if (sub != null && v == 'edit') {
+                        editSubscriptionDialog(sub);
+                      }
+                      if (sub != null && v == 'copy') {
+                        Clipboard.setData(ClipboardData(text: sub.url));
+                        showSnack('لینک اشتراک کپی شد');
+                      }
+                      if (sub != null && v == 'delete') {
+                        deleteSubscription(sub);
+                      }
+                    },
+                    itemBuilder: (_) => <PopupMenuEntry<String>>[
+                      PopupMenuItem<String>(
+                        value: 'sort',
+                        child: Text(sorted
+                            ? 'دسته‌بندی: پیش‌فرض'
+                            : 'دسته‌بندی: بر اساس پینگ'),
+                      ),
+                      if (sub != null) ...[
+                        const PopupMenuItem<String>(
+                          value: 'edit',
+                          child: Text('تنظیمات اشتراک'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'copy',
+                          child: Text('کپی لینک'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'delete',
+                          child: Text('حذف'),
+                        ),
                       ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ],
               ),
             ),
-            // اطلاعات از چپ به راست: حجم ← نوار ← انقضا، سپس تعداد و زمان بروزرسانی
-            Directionality(
-              textDirection: TextDirection.ltr,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 4, 14, 12),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          unlimited
-                              ? 'نامحدود'
-                              : '${_fmtBytes(used)} / ${_fmtBytes(total)}',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            // نوار اطلاعات: جزئیات ← حجم ← انقضا ← لینک
+            Container(
+              color: scheme.primary.withOpacity(0.05),
+              padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'جزئیات',
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(Icons.info_outline_rounded, color: scheme.primary),
+                    onPressed: () => _infoSheet(
+                      icon: Icons.info_outline_rounded,
+                      color: scheme.primary,
+                      title: title,
+                      body: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _kv('تعداد سرور', '${servers.length}'),
+                          _kv('حجم مصرف', usageText),
+                          _kv('انقضا', expiry),
+                          if (sub != null)
+                            _kv('آخرین بروزرسانی', fmtAgo(sub.updatedAt)),
+                        ],
+                      ),
+                      actions: (ctx) => [
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('بستن'),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: LinearProgressIndicator(
-                              value: ratio,
-                              minHeight: 6,
-                              color: ratio > 0.9 ? Colors.redAccent : scheme.primary,
-                              backgroundColor: scheme.primary.withOpacity(0.12),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(expiry, style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Text(
-                          '${servers.length} سرور',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                        const Spacer(),
-                        if (sub != null)
-                          Text(
-                            'بروزرسانی ${fmtAgo(sub.updatedAt)}',
-                            style: const TextStyle(fontSize: 11, color: Colors.grey),
-                          ),
-                      ],
+                  ),
+                  Expanded(child: _usageBar(ratio, usageText, scheme)),
+                  const SizedBox(width: 8),
+                  Text(
+                    expiry,
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  ),
+                  if (sub != null)
+                    IconButton(
+                      tooltip: 'کپی لینک',
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(Icons.link_rounded, color: scheme.primary),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: sub.url));
+                        showSnack('لینک اشتراک کپی شد');
+                      },
                     ),
-                  ],
-                ),
+                ],
               ),
             ),
             if (!collapsed) ...[
               Divider(height: 1, color: divider),
-              for (var i = 0; i < _orderServers(servers, sort: sorted).length; i++) ...[
-                _serverTile(_orderServers(servers, sort: sorted)[i]),
-                if (i < servers.length - 1) Divider(height: 1, color: divider),
+              for (var i = 0; i < ordered.length; i++) ...[
+                _serverTile(ordered[i]),
+                if (i < ordered.length - 1) Divider(height: 1, color: divider),
               ],
             ],
           ],
@@ -5027,12 +5121,6 @@ class _MainShellState extends State<MainShell> {
               subtitle: 'دو درخواست بفرست و سریع‌تر را نگه دار',
               value: pingBestOfTwo,
               onChanged: (v) => _applySetting(() => pingBestOfTwo = v),
-            ),
-            _settingsSwitch(
-              title: 'حالت کم‌مصرف',
-              subtitle: 'انیمیشن و هالهٔ دکمهٔ اتصال خاموش می‌شوند',
-              value: lowPowerMode,
-              onChanged: (v) => _applySetting(() => lowPowerMode = v),
             ),
             ListTile(
               title: const Text('مهلت پینگ', style: TextStyle(fontSize: 14)),
