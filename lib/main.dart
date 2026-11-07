@@ -3242,6 +3242,35 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  List<ServerItem> get filteredServers {
+    final list = servers.where((s) {
+      final matchGroup =
+          selectedGroupFilter == 'ALL' || s.subId == selectedGroupFilter;
+      final matchSearch = searchQuery.isEmpty ||
+          s.remark.toLowerCase().contains(searchQuery.toLowerCase()) ||
+          s.protocol.toLowerCase().contains(searchQuery.toLowerCase());
+      return matchGroup && matchSearch;
+    }).toList();
+
+    if (sortByPing) {
+      int? value(ServerItem server) => server.pingFor(selectedPingMode);
+
+      int rank(ServerItem server) {
+        final ping = value(server);
+        if (ping == null) return 1;
+        if (ping <= 0) return 2;
+        return 0;
+      }
+
+      list.sort((a, b) {
+        final rankCompare = rank(a).compareTo(rank(b));
+        if (rankCompare != 0) return rankCompare;
+        return (value(a) ?? 0).compareTo(value(b) ?? 0);
+      });
+    }
+    return list;
+  }
+
   Future<void> _autoSelectBestServer() async {
     List<ServerItem> rankable() => servers
         .where((s) => (s.pingFor(PingMode.real) ?? 0) > 0)
