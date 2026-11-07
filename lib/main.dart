@@ -1419,29 +1419,31 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
 
   ThemeData _buildTheme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
-    final card = isDark ? const Color(0xFF151C2C) : const Color(0xFFFFFFFF);
-    final scaffold = isDark ? const Color(0xFF0B0F19) : const Color(0xFFF3F5F9);
-    final primary = isDark ? const Color(0xFF6366F1) : const Color(0xFF2563EB);
+    final bg = isDark ? const Color(0xFF0E1015) : const Color(0xFFF4F5F7);
+    final card = isDark ? const Color(0xFF181B22) : const Color(0xFFFFFFFF);
+    final text = isDark ? const Color(0xFFF2F4F8) : const Color(0xFF14171F);
+    const accent = Color(0xFF4F7CFF);
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
       fontFamily: 'Vazirmatn',
-      scaffoldBackgroundColor: scaffold,
+      scaffoldBackgroundColor: bg,
       cardColor: card,
+      dividerColor: isDark ? const Color(0xFF232732) : const Color(0xFFE6E8EE),
       colorScheme: isDark
-          ? ColorScheme.dark(primary: primary, secondary: const Color(0xFF10B981), surface: card)
-          : ColorScheme.light(primary: primary, secondary: const Color(0xFF10B981), surface: card),
+          ? ColorScheme.dark(primary: accent, secondary: accent, surface: card)
+          : ColorScheme.light(primary: accent, secondary: accent, surface: card),
       appBarTheme: AppBarTheme(
-        backgroundColor: scaffold,
-        foregroundColor: isDark ? Colors.white : const Color(0xFF0F172A),
+        backgroundColor: bg,
+        foregroundColor: text,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,
         titleTextStyle: TextStyle(
           fontFamily: 'Vazirmatn',
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
-          color: isDark ? Colors.white : const Color(0xFF0F172A),
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          color: text,
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -1449,35 +1451,28 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
         fillColor: card,
         isDense: true,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
         ),
-      ),
-      navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: card,
-        indicatorColor: primary.withOpacity(0.18),
-        height: 66,
       ),
       bottomSheetTheme: const BottomSheetThemeData(
         showDragHandle: true,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
       ),
       segmentedButtonTheme: SegmentedButtonThemeData(
-        style: ButtonStyle(
-          visualDensity: VisualDensity.compact,
-        ),
+        style: ButtonStyle(visualDensity: VisualDensity.compact),
       ),
-    );
-    return base.copyWith(
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
           TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
         },
       ),
-      textTheme: base.textTheme.apply(fontFamily: 'Vazirmatn'),
+    );
+    return base.copyWith(
+      textTheme: base.textTheme.apply(fontFamily: 'Vazirmatn', bodyColor: text, displayColor: text),
       primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Vazirmatn'),
     );
   }
@@ -1571,6 +1566,9 @@ class _MainShellState extends State<MainShell> {
     flutterV2ray = V2ray(
       onStatusChanged: (status) {
         if (mounted) setState(() => v2rayStatus = status);
+        if (_pendingTarget == true && status.state == 'CONNECTED') {
+          if (mounted) setState(() => _pendingTarget = null);
+        }
         unawaited(
           _syncNativeConnectionState(status.state == 'CONNECTED', status.state),
         );
@@ -2094,6 +2092,13 @@ class _MainShellState extends State<MainShell> {
   // ------------------------------------------------------------------ اتصال
 
   bool _vpnBusy = false;
+  // نیت کاربر تا وقتی هسته تأیید کند: true = در حال وصل شدن، false = در حال قطع
+  bool? _pendingTarget;
+  int _pendingToken = 0;
+
+  void _setPending(bool? value) {
+    if (mounted) setState(() => _pendingTarget = value);
+  }
 
   Future<void> _waitForState(String target, {int ms = 2500}) async {
     final end = DateTime.now().add(Duration(milliseconds: ms));
@@ -2106,7 +2111,6 @@ class _MainShellState extends State<MainShell> {
     if (mounted) {
       setState(() => v2rayStatus = V2RayStatus(state: 'DISCONNECTING'));
     }
-    // چند بار تلاش می‌کنیم تا هسته واقعاً بسته شود و وضعیت از هسته برسد
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         await flutterV2ray.stopV2Ray();
@@ -2118,28 +2122,41 @@ class _MainShellState extends State<MainShell> {
       setState(() => v2rayStatus = V2RayStatus(state: 'DISCONNECTED'));
     }
     await _syncNativeConnectionState(false, 'DISCONNECTED');
+    _setPending(null);
   }
 
   Future<void> toggleVpn() async {
-    if (_vpnBusy) return;
+    if (_vpnBusy || _pendingTarget != null) return;
     _vpnBusy = true;
     HapticFeedback.mediumImpact();
+    final wantConnect = !(isConnected || isConnecting);
+    var started = false;
     try {
-      if (isConnected || isConnecting) {
+      if (!wantConnect) {
+        _setPending(false);
         await _stopVpn();
         return;
       }
 
       final target = selectedServer;
       if (target == null) {
-        showSnack('لطفاً ابتدا یک سرور اضافه کنید یا از سازنده بگیرید!');
+        showSnack('لطفاً ابتدا یک سرور اضافه کنید');
         return;
       }
 
       if (!isProxyOnly && !await flutterV2ray.requestPermission()) {
-        showSnack('مجوز ساخت تونل VPN توسط سیستم صادر نشد!');
+        showSnack('مجوز ساخت تونل VPN توسط سیستم صادر نشد');
         return;
       }
+
+      _setPending(true);
+      final token = ++_pendingToken;
+      // اگر هسته هیچ‌وقت تأیید نکرد، نیت کاربر پس از ۱۵ ثانیه پاک می‌شود
+      Future.delayed(const Duration(seconds: 15), () {
+        if (mounted && _pendingToken == token && _pendingTarget == true) {
+          setState(() => _pendingTarget = null);
+        }
+      });
 
       await savePersistentData();
       final finalConfig = buildCustomizedConfig(target.fullJsonConfig);
@@ -2150,10 +2167,12 @@ class _MainShellState extends State<MainShell> {
         blockedApps: null,
         bypassSubnets: null,
       );
+      started = true;
     } catch (e) {
       showSnack('خطا در برقراری اتصال: $e');
     } finally {
       _vpnBusy = false;
+      if (wantConnect && !started && _pendingTarget == true) _setPending(null);
     }
   }
 
@@ -3625,13 +3644,25 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  void Function()? _settingsRebuild;
+
+  void _applySetting(VoidCallback change) {
+    setState(change);
+    _settingsRebuild?.call();
+  }
+
   void _openSettings() {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: _buildSettingsTab(),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          _settingsRebuild = () => setLocal(() {});
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: _buildSettingsTab(),
+          );
+        },
       ),
-    ));
+    )).then((_) => _settingsRebuild = null);
   }
 
   Widget _homeHeader() {
@@ -3666,12 +3697,37 @@ class _MainShellState extends State<MainShell> {
           onPressed: isTestingAll ? null : testAllPings,
         ),
         IconButton(
+          icon: Icon(sortByPing ? Icons.sort_rounded : Icons.swap_vert_rounded),
+          tooltip: 'مرتب‌سازی بر اساس پینگ',
+          onPressed: () {
+            setState(() => sortByPing = !sortByPing);
+            savePersistentData();
+          },
+        ),
+        IconButton(
           icon: const Icon(Icons.settings_rounded),
           tooltip: 'تنظیمات',
           onPressed: _openSettings,
         ),
       ],
     );
+  }
+
+  List<ServerItem> _orderServers(List<ServerItem> list) {
+    if (!sortByPing) return list;
+    int rank(ServerItem s) {
+      final p = s.pingFor(PingMode.real);
+      if (p == null) return 2;
+      if (p <= 0) return 3;
+      return 1;
+    }
+    final copy = List<ServerItem>.from(list);
+    copy.sort((a, b) {
+      final r = rank(a).compareTo(rank(b));
+      if (r != 0) return r;
+      return (a.pingFor(PingMode.real) ?? 0).compareTo(b.pingFor(PingMode.real) ?? 0);
+    });
+    return copy;
   }
 
   String _groupMeta(SubscriptionItem? sub, int count) {
@@ -3801,7 +3857,7 @@ class _MainShellState extends State<MainShell> {
             const SizedBox(height: 8),
           ],
           if (!collapsed)
-            for (final server in servers)
+            for (final server in _orderServers(servers))
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _serverTile(server),
@@ -3812,14 +3868,19 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _buildHomeTab() {
-    final connected = isConnected;
-    final connecting = isConnecting || v2rayStatus.state == 'DISCONNECTING';
-    final accent = connected ? const Color(0xFF22C55E) : const Color(0xFF3B82F6);
-    final statusTitle = connected
-        ? 'متصل'
-        : connecting
-            ? 'در حال اتصال...'
-            : 'برای اتصال بزنید';
+    final pending = _pendingTarget;
+    final connected = pending == null ? isConnected : false;
+    final connecting = pending != null ||
+        isConnecting ||
+        v2rayStatus.state == 'DISCONNECTING';
+    final accent = connected ? const Color(0xFF22C55E) : const Color(0xFF4F7CFF);
+    final statusTitle = pending == false
+        ? 'در حال قطع...'
+        : connected
+            ? 'متصل'
+            : connecting
+                ? 'در حال اتصال...'
+                : 'برای اتصال بزنید';
     final active = selectedServer;
 
     final grouped = <String, List<ServerItem>>{};
@@ -4168,6 +4229,19 @@ class _MainShellState extends State<MainShell> {
                   color: ping == null ? Colors.grey : (ping <= 0 ? Colors.redAccent : null),
                 ),
               ),
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(width: 34, height: 34),
+                tooltip: 'تست پینگ این سرور',
+                icon: server.busyPings.contains(PingMode.real.name)
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.speed_rounded, size: 18),
+                onPressed: server.isPinging ? null : () => pingSingleServer(server),
+              ),
             ],
           ),
         ),
@@ -4437,7 +4511,7 @@ class _MainShellState extends State<MainShell> {
                       onPressed: () {
                         final v = controller.text.trim();
                         if (v.startsWith('https://') || v.startsWith('http://')) {
-                          setState(() => pingTestUrl = v);
+                          _applySetting(() => pingTestUrl = v);
                           savePersistentData();
                         }
                         Navigator.pop(ctx);
@@ -4480,7 +4554,10 @@ class _MainShellState extends State<MainShell> {
               ),
             ],
             selected: {widget.currentTheme},
-            onSelectionChanged: (val) => widget.onThemeChanged(val.first),
+            onSelectionChanged: (val) {
+              widget.onThemeChanged(val.first);
+              _settingsRebuild?.call();
+            },
           ),
           _sectionTitle('مسیریابی'),
           _settingsCard([
@@ -4488,13 +4565,13 @@ class _MainShellState extends State<MainShell> {
               title: 'بای‌پس ایران',
               subtitle: 'دامنه‌های .ir و آی‌پی‌های ایران مستقیم باز می‌شوند',
               value: bypassIran,
-              onChanged: (v) => setState(() => bypassIran = v),
+              onChanged: (v) => _applySetting(() => bypassIran = v),
             ),
             _settingsSwitch(
               title: 'بای‌پس شبکهٔ محلی',
               subtitle: 'ترافیک شبکهٔ محلی مستقیم وصل می‌شود',
               value: bypassLan,
-              onChanged: (v) => setState(() => bypassLan = v),
+              onChanged: (v) => _applySetting(() => bypassLan = v),
             ),
           ]),
           _sectionTitle('پیشرفته'),
@@ -4503,31 +4580,31 @@ class _MainShellState extends State<MainShell> {
               title: 'تجمیع اتصال (Mux)',
               subtitle: 'برای Reality و XHTTP خاموش بماند',
               value: enableMux,
-              onChanged: (v) => setState(() => enableMux = v),
+              onChanged: (v) => _applySetting(() => enableMux = v),
             ),
             _settingsSwitch(
               title: 'پذیرش TLS نامعتبر',
               subtitle: 'گواهی‌های نامعتبر را قبول کن',
               value: allowInsecureDefault,
-              onChanged: (v) => setState(() => allowInsecureDefault = v),
+              onChanged: (v) => _applySetting(() => allowInsecureDefault = v),
             ),
             _settingsSwitch(
               title: 'اعمال مسیریابی روی پینگ',
               subtitle: 'قوانین بای‌پس را در پینگ اعمال کن',
               value: pingBypassRouting,
-              onChanged: (v) => setState(() => pingBypassRouting = v),
+              onChanged: (v) => _applySetting(() => pingBypassRouting = v),
             ),
             _settingsSwitch(
               title: 'بهترین از دو پینگ',
               subtitle: 'دو درخواست بفرست و سریع‌تر را نگه دار',
               value: pingBestOfTwo,
-              onChanged: (v) => setState(() => pingBestOfTwo = v),
+              onChanged: (v) => _applySetting(() => pingBestOfTwo = v),
             ),
             _settingsSwitch(
               title: 'حالت کم‌مصرف',
               subtitle: 'انیمیشن و هالهٔ دکمهٔ اتصال خاموش می‌شوند',
               value: lowPowerMode,
-              onChanged: (v) => setState(() => lowPowerMode = v),
+              onChanged: (v) => _applySetting(() => lowPowerMode = v),
             ),
             ListTile(
               title: const Text('مهلت پینگ', style: TextStyle(fontSize: 14)),
@@ -4538,7 +4615,7 @@ class _MainShellState extends State<MainShell> {
                 ],
                 selected: {pingProxyTimeoutSec},
                 onSelectionChanged: (v) {
-                  setState(() => pingProxyTimeoutSec = v.first);
+                  _applySetting(() => pingProxyTimeoutSec = v.first);
                   savePersistentData();
                 },
               ),
@@ -4567,7 +4644,7 @@ class _MainShellState extends State<MainShell> {
                           label: Text(d),
                           selected: selectedDns == d,
                           onSelected: (_) {
-                            setState(() => selectedDns = d);
+                            _applySetting(() => selectedDns = d);
                             savePersistentData();
                           },
                         ),
@@ -4654,8 +4731,8 @@ class _PowerButton extends StatelessWidget {
   final bool connected;
   final bool connecting;
   final Color accent;
-  final VoidCallback onTap;
   final bool lowPower;
+  final VoidCallback onTap;
 
   const _PowerButton({
     this.lowPower = false,
@@ -4667,74 +4744,46 @@ class _PowerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final card = Theme.of(context).cardColor;
     return GestureDetector(
       onTap: onTap,
-      child: SizedBox(
-        width: 240,
-        height: 240,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            AnimatedContainer(
-              duration: lowPower ? Duration.zero : const Duration(milliseconds: 400),
-              width: 240,
-              height: 240,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: accent, width: 3),
-                boxShadow: lowPower
-                    ? const []
-                    : [
-                  BoxShadow(
-                    color: accent.withOpacity(0.4),
-                    blurRadius: 36,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
+      child: AnimatedContainer(
+        duration: lowPower ? Duration.zero : const Duration(milliseconds: 300),
+        width: 200,
+        height: 200,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: card,
+          border: Border.all(color: accent.withOpacity(0.35), width: 2),
+        ),
+        child: Center(
+          child: AnimatedContainer(
+            duration: lowPower ? Duration.zero : const Duration(milliseconds: 300),
+            width: 150,
+            height: 150,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: connected ? accent.withOpacity(0.12) : Colors.transparent,
             ),
-            AnimatedContainer(
-              duration: lowPower ? Duration.zero : const Duration(milliseconds: 400),
-              width: 190,
-              height: 190,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF0F1626),
-                border: Border.all(color: accent.withOpacity(0.5), width: 1.5),
-              ),
-              child: Center(
-                child: connecting
-                    ? SizedBox(
-                        width: 56,
-                        height: 56,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3,
-                          color: accent,
-                        ),
-                      )
-                    : connected
-                        ? Text(
-                            'S',
-                            style: TextStyle(
-                              fontSize: 72,
-                              fontWeight: FontWeight.w900,
-                              color: accent,
-                            ),
-                          )
-                        : Icon(
-                            Icons.power_settings_new_rounded,
-                            size: 72,
-                            color: accent,
-                          ),
-              ),
+            child: Center(
+              child: connecting
+                  ? SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: accent),
+                    )
+                  : Icon(
+                      Icons.power_settings_new_rounded,
+                      size: 64,
+                      color: connected ? accent : Colors.grey,
+                    ),
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
-
 
 // ---------------------------------------------------------------------------
 //  راهنمای اولین اجرا (فقط یک بار نمایش داده می‌شود)
