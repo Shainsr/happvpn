@@ -1758,7 +1758,6 @@ class _MainShellState extends State<MainShell> {
         'shinUpdateCheck',
         frequency: const Duration(hours: 12),
         constraints: Constraints(networkType: NetworkType.connected),
-        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
       );
     } catch (_) {}
   }
