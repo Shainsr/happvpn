@@ -14,6 +14,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
+import androidx.core.content.FileProvider
 
 class MainActivity : FlutterActivity() {
 
@@ -118,12 +119,41 @@ class MainActivity : FlutterActivity() {
                     updateNativeState(applicationContext, connected)
                     result.success(true)
                 }
+                "installApk" -> {
+                    val path = call.argument<String>("path")
+                    if (path == null) {
+                        result.error("ARG", "path missing", null)
+                    } else {
+                        result.success(installApk(path))
+                    }
+                }
                 "consumePendingAction" -> {
                     result.success(null)
                 }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun installApk(path: String): String {
+        val file = java.io.File(path)
+        if (!file.exists()) return "missing"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()) {
+            val settings = Intent(
+                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                android.net.Uri.parse("package:$packageName")
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(settings)
+            return "permission"
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+        return "ok"
     }
 
     override fun onDestroy() {
