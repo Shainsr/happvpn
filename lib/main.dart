@@ -267,7 +267,7 @@ Future<void> vpnBackgroundMain() async {
         remark: remark,
         config: config,
         proxyOnly: isProxyOnly,
-        blockedApps: null,
+        blockedApps: bypassApps.isEmpty ? null : bypassApps.toList(),
         bypassSubnets: null,
       );
     }
@@ -1739,6 +1739,12 @@ class _MainShellState extends State<MainShell> {
   final Set<String> _sortedGroups = <String>{};
   final Set<String> _testingGroups = <String>{};
   final Set<String> _countryGroups = <String>{};
+  // برنامه‌هایی که از VPN رد نمی‌شوند (حالت Bypass)
+  final Set<String> bypassApps = <String>{};
+  bool autoPingOnOpen = true;
+  List<Map<String, String>> _installedApps = [];
+  bool _appsLoading = false;
+  String _appsQuery = '';
   bool enableIPv6 = false;
   final Set<String> _collapsedGroups = <String>{};
   bool bypassLan = true;
@@ -1809,6 +1815,9 @@ class _MainShellState extends State<MainShell> {
     await _maybeShowOnboarding();
     unawaited(checkForAppUpdate(silent: true));
     unawaited(_setupBackgroundUpdates());
+    if (autoPingOnOpen && servers.isNotEmpty) {
+      unawaited(testAllPings());
+    }
   }
 
   Future<void> _setupBackgroundUpdates() async {
@@ -2032,6 +2041,8 @@ class _MainShellState extends State<MainShell> {
       await prefs.setBool('pingBestOfTwo', pingBestOfTwo);
       await prefs.setBool('pingBypassRouting', pingBypassRouting);
       await prefs.setBool('enableIPv6', enableIPv6);
+      await prefs.setStringList('bypassApps', bypassApps.toList());
+      await prefs.setBool('autoPingOnOpen', autoPingOnOpen);
       await prefs.setString('pingTestUrl', pingTestUrl);
       await prefs.setStringList('countryGroups', _countryGroups.toList());
 
@@ -2105,6 +2116,10 @@ class _MainShellState extends State<MainShell> {
         pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? false;
         pingBypassRouting = prefs.getBool('pingBypassRouting') ?? false;
         enableIPv6 = prefs.getBool('enableIPv6') ?? false;
+        bypassApps
+          ..clear()
+          ..addAll(prefs.getStringList('bypassApps') ?? const <String>[]);
+        autoPingOnOpen = prefs.getBool('autoPingOnOpen') ?? true;
         pingTestUrl = prefs.getString('pingTestUrl') ?? kDefaultPingUrl;
         _countryGroups
           ..clear()
@@ -2385,7 +2400,7 @@ class _MainShellState extends State<MainShell> {
         remark: target.remark,
         config: finalConfig,
         proxyOnly: isProxyOnly,
-        blockedApps: null,
+        blockedApps: ((prefs.getStringList('bypassApps') ?? const <String>[]).isEmpty ? null : prefs.getStringList('bypassApps')),
         bypassSubnets: null,
       );
       started = true;
@@ -5273,6 +5288,111 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  void _openAppsPage() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => _buildAppsPage(),
+    ));
+  }
+
+  Future<void> _loadInstalledApps() async {
+    try {
+      final raw = await kQuickControlsChannel
+              .invokeListMethod<dynamic>('getLaunchableApps') ??
+          <dynamic>[];
+      final apps = <Map<String, String>>[];
+      for (final item in raw) {
+        if (item is! Map) continue;
+        final pkg = (item['package'] ?? '').toString();
+        if (pkg.isEmpty) continue;
+        apps.add({'name': (item['name'] ?? pkg).toString(), 'package': pkg});
+      }
+      apps.sort((a, b) => a['name']!.toLowerCase().compareTo(b['name']!.toLowerCase()));
+      _installedApps = apps;
+    } catch (_) {
+      showSnack('فهرست برنامه‌ها گرفته نشد');
+    }
+    _appsLoading = false;
+  }
+
+  Widget _buildAppsPage() {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: StatefulBuilder(
+        builder: (ctx, setLocal) {
+          if (_installedApps.isEmpty && !_appsLoading) {
+            _appsLoading = true;
+            _loadInstalledApps().then((_) {
+              if (ctx.mounted) setLocal(() {});
+            });
+          }
+          final q = _appsQuery.toLowerCase();
+          final shown = _installedApps
+              .where((a) =>
+                  q.isEmpty ||
+                  a['name']!.toLowerCase().contains(q) ||
+                  a['package']!.contains(q))
+              .toList();
+
+          return Scaffold(
+            appBar: AppBar(title: const Text('برنامه‌های خارج از VPN')),
+            body: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: TextField(
+                    onChanged: (v) {
+                      _appsQuery = v;
+                      setLocal(() {});
+                    },
+                    decoration: const InputDecoration(
+                      hintText: 'جستجوی برنامه',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'برنامه‌های انتخاب‌شده مستقیم و بدون VPN وصل می‌شوند. تغییرات بعد از قطع و وصل مجدد اعمال می‌شود.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.6),
+                  ),
+                ),
+                Expanded(
+                  child: _appsLoading && _installedApps.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : ListView.builder(
+                          itemCount: shown.length,
+                          itemBuilder: (_, i) {
+                            final app = shown[i];
+                            final pkg = app['package']!;
+                            return CheckboxListTile(
+                              value: bypassApps.contains(pkg),
+                              title: Text(app['name']!),
+                              subtitle: Text(pkg,
+                                  textDirection: TextDirection.ltr,
+                                  style: const TextStyle(fontSize: 11)),
+                              onChanged: (v) {
+                                _applySetting(() {
+                                  if (v == true) {
+                                    bypassApps.add(pkg);
+                                  } else {
+                                    bypassApps.remove(pkg);
+                                  }
+                                });
+                                setLocal(() {});
+                              },
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildSettingsTab() {
     return Scaffold(
       appBar: AppBar(title: const Text('تنظیمات')),
@@ -5304,6 +5424,15 @@ class _MainShellState extends State<MainShell> {
               _settingsRebuild?.call();
             },
           ),
+          _sectionTitle('برنامه‌ها'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.apps_rounded,
+              title: 'برنامه‌های خارج از VPN',
+              subtitle: '${bypassApps.length} برنامه انتخاب شده',
+              onTap: _openAppsPage,
+            ),
+          ]),
           _sectionTitle('مسیریابی'),
           _settingsCard([
             _settingsSwitch(
@@ -5326,6 +5455,12 @@ class _MainShellState extends State<MainShell> {
               subtitle: 'برای Reality و XHTTP خاموش بماند',
               value: enableMux,
               onChanged: (v) => _applySetting(() => enableMux = v),
+            ),
+            _settingsSwitch(
+              title: 'پینگ خودکار هنگام باز شدن',
+              subtitle: 'بعد از هر بار باز کردن برنامه، پینگ همهٔ سرورها گرفته شود',
+              value: autoPingOnOpen,
+              onChanged: (v) => _applySetting(() => autoPingOnOpen = v),
             ),
             _settingsSwitch(
               title: 'IPv6',
