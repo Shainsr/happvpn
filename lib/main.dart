@@ -1752,7 +1752,7 @@ class _MainShellState extends State<MainShell> {
     try {
       await UpdateNotifier.init();
       await UpdateNotifier.requestPermission();
-      await Workmanager().initialize(shinUpdateDispatcher, isInDebugMode: false);
+      await Workmanager().initialize(shinUpdateDispatcher);
       await Workmanager().registerPeriodicTask(
         'shin-update-check',
         'shinUpdateCheck',
