@@ -33,10 +33,8 @@ jobs:
 
       - name: Customize App Name to SHIN & Generate White 'S' Icon
         run: |
-          # ۱. نصب کتابخانه پردازش تصویر پایتون
           sudo apt-get update && sudo apt-get install -y python3-pil
 
-          # ۲. تنظیم کامل متغیرهای متنی برنامه و ویجت در strings.xml
           cat << 'EOF' > android/app/src/main/res/values/strings.xml
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -47,9 +45,6 @@ jobs:
           </resources>
           EOF
 
-          sed -i 's/android:label="[^"]*"/android:label="SHIN"/g' android/app/src/main/AndroidManifest.xml
-
-          # ۳. تولید خودکار آیکون‌های سفید با حرف S
           python3 - << 'PYEOF'
           import os
           from PIL import Image, ImageDraw, ImageFont
@@ -123,10 +118,18 @@ jobs:
           include(":app")
           EOF
 
-      - name: Clean & Install Dependencies
+      - name: Clean, Install & Patch Plugin Notification Crash
         run: |
           flutter pub cache clean --force
           flutter pub get
+          # پچ خودکار پلاگین flutter_v2ray_client برای جلوگیری از کرش نوتیفیکیشن هنگام کلیک در اندروید ۱۲+
+          find ~/.pub-cache/hosted/pub.dev/flutter_v2ray_client* \( -name "*.java" -o -name "*.kt" \) | while read -r file; do
+            sed -i 's/PendingIntent.FLAG_UPDATE_CURRENT/PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE/g' "$file" || true
+            sed -i 's/PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_IMMUTABLE/PendingIntent.FLAG_IMMUTABLE/g' "$file" || true
+            sed -i 's/PendingIntent.getActivity(\([^,]*\),\([^,]*\),\([^,]*\), 0)/PendingIntent.getActivity(\1,\2,\3, PendingIntent.FLAG_IMMUTABLE)/g' "$file" || true
+            sed -i 's/PendingIntent.getService(\([^,]*\),\([^,]*\),\([^,]*\), 0)/PendingIntent.getService(\1,\2,\3, PendingIntent.FLAG_IMMUTABLE)/g' "$file" || true
+            sed -i 's/PendingIntent.getBroadcast(\([^,]*\),\([^,]*\),\([^,]*\), 0)/PendingIntent.getBroadcast(\1,\2,\3, PendingIntent.FLAG_IMMUTABLE)/g' "$file" || true
+          done
 
       - name: Prepare release signing (fixed keystore from secrets)
         env:
@@ -157,7 +160,7 @@ jobs:
           fi
           echo "name=$VER" >> "$GITHUB_OUTPUT"
           echo "code=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
-          echo "Version $VER, build code $((100 + GITHUB_RUN_NUMBER))"
+          echo "Version $VER, build code$((100 + GITHUB_RUN_NUMBER))"
 
       - name: Build Split-per-ABI Release APKs
         run: >
@@ -173,7 +176,7 @@ jobs:
           --build-number=${{ steps.ver.outputs.code }}
           --dart-define=APP_VERSION=${{ steps.ver.outputs.name }}
 
-      - name: Verify APK signatures (fails the build if an APK is unsigned/invalid)
+      - name: Verify APK signatures
         run: |
           APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
           echo "Using $APKSIGNER"
