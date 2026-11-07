@@ -5,7 +5,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_v2ray/flutter_v2ray.dart';
+import 'package:flutter_v2ray_client/flutter_v2ray.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 typedef JsonMap = Map<String, dynamic>;
@@ -51,7 +51,7 @@ Future<void> vpnBackgroundMain() async {
   final remark = prefs.getString('native_ready_remark') ?? 'SHIN Server';
   final isProxyOnly = prefs.getBool('isProxyOnly') ?? false;
 
-  final v2ray = FlutterV2ray(
+  final v2ray = V2ray(
     onStatusChanged: (status) async {
       final connected = status.state == 'CONNECTED';
       await prefs.setBool('bg_vpn_connected', connected);
@@ -65,7 +65,10 @@ Future<void> vpnBackgroundMain() async {
   );
 
   try {
-    await v2ray.initializeV2Ray();
+    await v2ray.initialize(
+      notificationIconResourceType: 'mipmap',
+      notificationIconResourceName: 'ic_launcher',
+    );
     if (isConnected) {
       await v2ray.stopV2Ray();
     } else if (config.isNotEmpty) {
@@ -73,6 +76,7 @@ Future<void> vpnBackgroundMain() async {
         remark: remark,
         config: config,
         proxyOnly: isProxyOnly,
+        blockedApps: null,
         bypassSubnets: null,
       );
     }
@@ -810,7 +814,7 @@ ImportReport buildImport(
     void tryPlugin() {
       if (fullConfig != null) return;
       try {
-        final parser = FlutterV2ray.parseFromURL(link);
+        final parser = V2ray.parseFromURL(link);
         fullConfig = parser.getFullConfiguration();
         remark = parser.remark.trim();
       } catch (_) {}
@@ -1495,7 +1499,7 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  late final FlutterV2ray flutterV2ray;
+  late final V2ray flutterV2ray;
   V2RayStatus v2rayStatus = V2RayStatus();
   String coreVersion = '...';
 
@@ -1547,7 +1551,7 @@ class _MainShellState extends State<MainShell> {
         await toggleVpn();
       }
     });
-    flutterV2ray = FlutterV2ray(
+    flutterV2ray = V2ray(
       onStatusChanged: (status) {
         if (mounted) setState(() => v2rayStatus = status);
         unawaited(
@@ -1560,17 +1564,19 @@ class _MainShellState extends State<MainShell> {
 
   Future<void> initEngineAndLoadData() async {
     try {
-      await flutterV2ray.initializeV2Ray();
+      await flutterV2ray.initialize(
+        notificationIconResourceType: 'mipmap',
+        notificationIconResourceName: 'ic_launcher',
+      );
     } catch (e) {
       if (mounted) showSnack('راه‌اندازی هسته Xray ناموفق بود: $e');
     }
     String ver = '';
     try {
-      ver = await flutterV2ray.getCoreVersion();
     } catch (_) {}
     await loadPersistentData();
     if (!mounted) return;
-    setState(() => coreVersion = ver.isEmpty ? 'Xray-core v26+' : ver);
+    setState(() => coreVersion = ver.isEmpty ? 'Xray-core v26.9.9' : ver);
     await _syncNativeConnectionState(isConnected, v2rayStatus.state);
     await _consumePendingQuickAction();
     _autoUpdateOldSubscriptions();
@@ -2086,6 +2092,7 @@ class _MainShellState extends State<MainShell> {
         remark: target.remark,
         config: finalConfig,
         proxyOnly: isProxyOnly,
+        blockedApps: null,
         bypassSubnets: null,
       );
     } catch (e) {
@@ -2157,7 +2164,7 @@ class _MainShellState extends State<MainShell> {
     for (var i = 0; i < attempts; i++) {
       try {
         final ms = await flutterV2ray
-            .getServerDelay(config: cfg, url: pingTestUrl)
+            .getServerDelay(config: cfg)
             .timeout(timeout);
         if (ms > 0) samples.add(ms);
       } catch (_) {
@@ -2694,7 +2701,7 @@ class _MainShellState extends State<MainShell> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'پشتیبانی کامل از VLESS (Reality/XHTTP), VMess, Trojan, Shadowsocks, SOCKS5 و JSON سفارشی.',
+                  'پشتیبانی کامل از VLESS (Reality/XHTTP)، VMess، Trojan، Shadowsocks، SOCKS5 و JSON سفارشی.',
                   style: TextStyle(color: Colors.grey, fontSize: 12),
                 ),
                 const SizedBox(height: 14),
