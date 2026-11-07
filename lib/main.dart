@@ -278,7 +278,8 @@ Future<void> vpnBackgroundMain() async {
 //  ثابت‌ها و تنظیمات پایه
 // ---------------------------------------------------------------------------
 
-const String kAppVersion = '1.00.0';
+const String kAppVersion =
+    String.fromEnvironment('APP_VERSION', defaultValue: '1.00.1');
 
 // مخزن گیت‌هاب برای بررسی بروزرسانی (owner/repo)
 const String kUpdateRepo = 'Shainsr/happvpn';
@@ -1738,6 +1739,7 @@ class _MainShellState extends State<MainShell> {
   final Set<String> _sortedGroups = <String>{};
   final Set<String> _testingGroups = <String>{};
   final Set<String> _countryGroups = <String>{};
+  bool enableIPv6 = false;
   final Set<String> _collapsedGroups = <String>{};
   bool bypassLan = true;
   bool bypassIran = true;
@@ -2029,6 +2031,7 @@ class _MainShellState extends State<MainShell> {
       await prefs.setInt('pingProxyTimeoutSec', pingProxyTimeoutSec);
       await prefs.setBool('pingBestOfTwo', pingBestOfTwo);
       await prefs.setBool('pingBypassRouting', pingBypassRouting);
+      await prefs.setBool('enableIPv6', enableIPv6);
       await prefs.setString('pingTestUrl', pingTestUrl);
       await prefs.setStringList('countryGroups', _countryGroups.toList());
 
@@ -2101,6 +2104,7 @@ class _MainShellState extends State<MainShell> {
         pingProxyTimeoutSec = prefs.getInt('pingProxyTimeoutSec') ?? 5;
         pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? false;
         pingBypassRouting = prefs.getBool('pingBypassRouting') ?? false;
+        enableIPv6 = prefs.getBool('enableIPv6') ?? false;
         pingTestUrl = prefs.getString('pingTestUrl') ?? kDefaultPingUrl;
         _countryGroups
           ..clear()
@@ -2182,7 +2186,8 @@ class _MainShellState extends State<MainShell> {
     try {
       final JsonMap config = JsonMap.from(jsonDecode(rawJson));
       config['dns'] = {
-        'servers': [selectedDns, '8.8.8.8', '1.1.1.1']
+        'servers': [selectedDns, '8.8.8.8', '1.1.1.1'],
+        'queryStrategy': enableIPv6 ? 'UseIP' : 'UseIPv4',
       };
 
       if (config['outbounds'] is List &&
@@ -2406,21 +2411,32 @@ class _MainShellState extends State<MainShell> {
   // Via Proxy: درخواست HTTP به آدرس تست، از داخل تونل/پروکسی سرور انجام می‌شود.
   // اگر «دو درخواست» فعال باشد، بهترین نتیجه از دو اجرا انتخاب می‌شود.
   Future<int> _measureThroughTunnel() async {
-    final client = HttpClient()
-      ..connectionTimeout = Duration(seconds: pingProxyTimeoutSec);
-    try {
-      final timeout = Duration(seconds: pingProxyTimeoutSec);
-      final sw = Stopwatch()..start();
-      final req = await client.getUrl(Uri.parse(pingTestUrl)).timeout(timeout);
-      final resp = await req.close().timeout(timeout);
-      sw.stop();
-      await resp.drain<void>();
-      return sw.elapsedMilliseconds;
-    } catch (_) {
-      return -1;
-    } finally {
-      client.close(force: true);
+    // HTTP ساده (بدون TLS) تا زمان واقعی مسیر اندازه‌گیری شود؛ دو بار و بهترین نتیجه
+    final url = Uri.parse(pingTestUrl.replaceFirst('https://', 'http://'));
+    final timeout = Duration(seconds: pingProxyTimeoutSec);
+    var best = -1;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final client = HttpClient()
+        ..connectionTimeout = timeout
+        ..idleTimeout = Duration.zero;
+      try {
+        final sw = Stopwatch()..start();
+        final req = await client.getUrl(url).timeout(timeout);
+        req.headers.set('Connection', 'close');
+        final resp = await req.close().timeout(timeout);
+        sw.stop();
+        await resp.drain<void>();
+        if (resp.statusCode == 204 || resp.statusCode == 200) {
+          final ms = sw.elapsedMilliseconds;
+          if (best < 0 || ms < best) best = ms;
+        }
+      } catch (_) {
+        // این تلاش ناموفق بود
+      } finally {
+        client.close(force: true);
+      }
     }
+    return best;
   }
 
   Future<int> _measureViaProxy(ServerItem server) async {
@@ -2705,39 +2721,95 @@ class _MainShellState extends State<MainShell> {
       showSnack('فایل نصبی این نسخه پیدا نشد');
       return;
     }
-    setState(() => downloadProgress = 0);
+    final text = ValueNotifier<String>('در حال دانلود...');
+    final value = ValueNotifier<double?>(null);
     final client = HttpClient();
+    final version = availableVersion.isEmpty ? 'latest' : availableVersion;
+
+    if (mounted) {
+      showModalBottomSheet(
+        context: context,
+        isDismissible: false,
+        showDragHandle: true,
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: ValueListenableBuilder<double?>(
+              valueListenable: value,
+              builder: (_, v, __) => ValueListenableBuilder<String>(
+                valueListenable: text,
+                builder: (_, t, __) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('دانلود نسخهٔ $version',
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                    const SizedBox(height: 16),
+                    LinearProgressIndicator(value: v, minHeight: 8),
+                    const SizedBox(height: 10),
+                    Text(t,
+                        textAlign: TextAlign.center,
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     try {
       final dir = Directory('${(await getTemporaryDirectory()).path}/updates');
-      await dir.create(recursive: true);
-      final file = File('${dir.path}/shin-update.apk');
+      if (await dir.exists()) {
+        // فایل‌های قدیمی آپدیت را پاک کن تا نسخهٔ قبلی جایگزین نشود
+        await for (final f in dir.list()) {
+          if (f is File) await f.delete();
+        }
+      } else {
+        await dir.create(recursive: true);
+      }
+      final file = File('${dir.path}/shin-$version.apk');
 
       final req = await client.getUrl(Uri.parse(availableApkUrl));
       req.followRedirects = true;
       req.maxRedirects = 5;
       final resp = await req.close();
+      if (resp.statusCode != 200) {
+        throw 'کد پاسخ سرور: ${resp.statusCode}';
+      }
       final total = resp.contentLength;
       var received = 0;
       final sink = file.openWrite();
       await for (final chunk in resp) {
         sink.add(chunk);
         received += chunk.length;
-        if (total > 0 && mounted) {
-          setState(() => downloadProgress = received / total);
-        }
+        value.value = total > 0 ? received / total : null;
+        text.value = total > 0
+            ? '${(received / total * 100).toStringAsFixed(0)}%  •  '
+                '${_fmtBytes(received)} از ${_fmtBytes(total)}'
+            : '${_fmtBytes(received)} دانلود شده';
       }
       await sink.close();
+      if (total > 0 && received != total) {
+        throw 'دانلود کامل نشد (${_fmtBytes(received)} از ${_fmtBytes(total)})';
+      }
 
+      if (mounted) Navigator.of(context, rootNavigator: true).maybePop();
       final result = await kQuickControlsChannel
           .invokeMethod<String>('installApk', {'path': file.path});
       if (result == 'permission') {
         showSnack('اجازهٔ نصب از این منبع را بدهید و دوباره تلاش کنید');
       }
     } catch (e) {
+      if (mounted) Navigator.of(context, rootNavigator: true).maybePop();
       showSnack('دانلود ناموفق بود: $e');
     } finally {
       client.close(force: true);
-      if (mounted) setState(() => downloadProgress = null);
+      text.dispose();
+      value.dispose();
     }
   }
 
@@ -4893,20 +4965,13 @@ class _MainShellState extends State<MainShell> {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  border: Border.all(color: tone, width: 1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  ping == null ? '—' : (ping <= 0 ? 'خطا' : '$ping ms'),
-                  textDirection: TextDirection.ltr,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: tone,
-                  ),
+              Text(
+                ping == null ? '—' : (ping <= 0 ? 'خطا' : '$ping ms'),
+                textDirection: TextDirection.ltr,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: tone,
                 ),
               ),
               IconButton(
@@ -5261,6 +5326,12 @@ class _MainShellState extends State<MainShell> {
               subtitle: 'برای Reality و XHTTP خاموش بماند',
               value: enableMux,
               onChanged: (v) => _applySetting(() => enableMux = v),
+            ),
+            _settingsSwitch(
+              title: 'IPv6',
+              subtitle: 'فقط اگر شبکه‌ات IPv6 دارد روشن کن',
+              value: enableIPv6,
+              onChanged: (v) => _applySetting(() => enableIPv6 = v),
             ),
             _settingsSwitch(
               title: 'پذیرش TLS نامعتبر',
