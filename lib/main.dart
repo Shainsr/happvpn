@@ -25,7 +25,7 @@ const String kCreatorDefaultSubUrl = '';
 enum PingMode { real }
 
 extension PingModeLabel on PingMode {
-  String get label => 'Real Ping';
+  String get label => 'پینگ واقعی';
 }
 
 const String kDefaultPingUrl = 'https://www.gstatic.com/generate_204';
@@ -1471,6 +1471,12 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
       ),
     );
     return base.copyWith(
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        },
+      ),
       textTheme: base.textTheme.apply(fontFamily: 'Vazirmatn'),
       primaryTextTheme: base.primaryTextTheme.apply(fontFamily: 'Vazirmatn'),
     );
@@ -1538,6 +1544,7 @@ class _MainShellState extends State<MainShell> {
   bool isRequestingFromCreator = false;
 
   bool isProxyOnly = false;
+  bool lowPowerMode = false;
   bool bypassLan = true;
   bool bypassIran = true;
   bool enableMux = false;
@@ -1598,10 +1605,21 @@ class _MainShellState extends State<MainShell> {
     } catch (_) {}
     await loadPersistentData();
     if (!mounted) return;
-    setState(() => coreVersion = ver.isEmpty ? 'Xray-core v26.9.9' : ver);
+    setState(() => coreVersion = ver.isEmpty ? 'هستهٔ Xray v26.9.9' : ver);
     await _syncNativeConnectionState(isConnected, v2rayStatus.state);
     await _consumePendingQuickAction();
     _autoUpdateOldSubscriptions();
+    await _maybeShowOnboarding();
+  }
+
+  Future<void> _maybeShowOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('onboarding_done') ?? false) return;
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const OnboardingScreen(),
+      fullscreenDialog: true,
+    ));
   }
 
   Future<void> _syncNativeConnectionState(bool connected, String status) async {
@@ -1635,50 +1653,36 @@ class _MainShellState extends State<MainShell> {
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: EdgeInsets.fromLTRB(
-            18,
-            0,
-            18,
+            20,
+            4,
+            20,
             MediaQuery.of(ctx).viewInsets.bottom + 20,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.support_agent_rounded,
-                      color: Color(0xFF10B981), size: 28),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'دریافت سرور اختصاصی از سازنده SHIN',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'با زدن دکمه زیر، درخواست به وب‌سرویس سازنده ارسال می‌شود. اگر وب‌سرویس در نسخه برنامه تنظیم نشده باشد، متن درخواست برای ارسال دستی کپی خواهد شد.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 12),
+              _sheetHeader(Icons.cloud_download_rounded, const Color(0xFF10B981),
+                  'دریافت سرور از سازنده',
+                  'درخواست به وب‌سرویس سازنده ارسال می‌شود'),
+              const SizedBox(height: 14),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.black12,
-                  borderRadius: BorderRadius.circular(12),
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'HWID: $hwid',
-                      textDirection: TextDirection.ltr,
-                      style: const TextStyle(
-                          fontFamily: 'monospace', fontSize: 11),
+                    Expanded(
+                      child: Text(
+                        'HWID: $hwid',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 11),
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.copy_rounded, size: 18),
@@ -1694,12 +1698,9 @@ class _MainShellState extends State<MainShell> {
               const SizedBox(height: 12),
               TextField(
                 controller: userNoteCtrl,
-                decoration: InputDecoration(
-                  labelText: 'نام، آیدی تلگرام یا توضیحات شما (اختیاری)',
-                  hintText: 'مثلاً: @username یا نام اینترنت همراه/ثابت',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                decoration: const InputDecoration(
+                  labelText: 'نام یا آیدی تلگرام (اختیاری)',
+                  hintText: 'مثلاً @username',
                 ),
               ),
               const SizedBox(height: 14),
@@ -1714,7 +1715,7 @@ class _MainShellState extends State<MainShell> {
                 ),
                 icon: const Icon(Icons.send_rounded),
                 label: const Text(
-                  'ارسال درخواست سرور به سازنده',
+                  'ارسال درخواست',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 onPressed: () {
@@ -1818,6 +1819,7 @@ class _MainShellState extends State<MainShell> {
       await prefs.setBool('pingBestOfTwo', pingBestOfTwo);
       await prefs.setBool('pingBypassRouting', pingBypassRouting);
       await prefs.setString('pingTestUrl', pingTestUrl);
+      await prefs.setBool('lowPowerMode', lowPowerMode);
 
       final active = selectedServer;
       if (active != null) {
@@ -1889,6 +1891,7 @@ class _MainShellState extends State<MainShell> {
         pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? false;
         pingBypassRouting = prefs.getBool('pingBypassRouting') ?? false;
         pingTestUrl = prefs.getString('pingTestUrl') ?? kDefaultPingUrl;
+        lowPowerMode = prefs.getBool('lowPowerMode') ?? false;
         servers = loadedServers;
         subscriptions = loadedSubs;
         if (selectedServerId.isEmpty && servers.isNotEmpty) {
@@ -2090,6 +2093,7 @@ class _MainShellState extends State<MainShell> {
   // ------------------------------------------------------------------ اتصال
 
   Future<void> toggleVpn() async {
+    HapticFeedback.mediumImpact();
     if (isConnected || isConnecting) {
       await flutterV2ray.stopV2Ray();
       await _syncNativeConnectionState(false, 'DISCONNECTED');
@@ -2242,35 +2246,29 @@ class _MainShellState extends State<MainShell> {
           (data['published_at'] ?? '').toString().split('T').first;
 
       if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            title: const Text('وضعیت هسته Xray 🛡️'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('نسخه فعلی روی برنامه شما:\n$coreVersion'),
-                const SizedBox(height: 12),
-                Text(
-                    'آخرین نسخه رسمی منتشرشده در گیت‌هاب:\n$latestTag (تاریخ: $publishedAt)'),
-                const SizedBox(height: 12),
-                const Text(
-                  'نکته: هسته Xray یک کتابخانه بومی است و هنگام بیلد جدید در گیت‌هاب اکشنز به صورت خودکار ارتقا می‌یابد.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
+      _infoSheet(
+        icon: Icons.memory_rounded,
+        color: const Color(0xFF22C55E),
+        title: 'وضعیت هسته Xray',
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _kv('نسخهٔ فعلی', coreVersion),
+            _kv('آخرین نسخهٔ رسمی', '$latestTag ($publishedAt)'),
+            const SizedBox(height: 6),
+            const Text(
+              'هسته Xray داخل کتابخانهٔ پلاگین است و با بروزرسانی پلاگین ارتقا می‌یابد.',
+              style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.6),
             ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('متوجه شدم'),
-              ),
-            ],
-          ),
+          ],
         ),
+        actions: (ctx) => [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('متوجه شدم'),
+          ),
+        ],
       );
     } catch (e) {
       showSnack('خطا در استعلام نسخه هسته: $e');
@@ -2320,52 +2318,47 @@ class _MainShellState extends State<MainShell> {
       }
 
       if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            title: const Text('بررسی بروزرسانی SHIN 🚀'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('نسخه فعلی برنامه: $kAppVersion'),
-                  Text(
-                      'آخرین نسخه منتشرشده: ${latestVer.isEmpty ? kAppVersion : latestVer}'),
-                  if (changelog.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    const Text(
-                      'تغییرات نسخه جدید:',
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(changelog, style: const TextStyle(fontSize: 12)),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('بستن'),
-              ),
-              if (downloadUrl.isNotEmpty)
-                FilledButton.icon(
-                  icon: const Icon(Icons.download_rounded),
-                  label: const Text('کپی لینک دانلود مستقیم APK'),
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: downloadUrl));
-                    Navigator.pop(ctx);
-                    showSnack(
-                        'لینک دانلود مستقیم APK کپی شد؛ در مرورگر باز کنید 📥');
-                  },
+      _infoSheet(
+        icon: Icons.system_update_rounded,
+        color: const Color(0xFF3B82F6),
+        title: 'بروزرسانی SHIN',
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _kv('نسخهٔ فعلی', kAppVersion),
+            _kv('آخرین نسخه', latestVer.isEmpty ? kAppVersion : latestVer),
+            if (changelog.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              const Text('تغییرات نسخهٔ جدید',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+              const SizedBox(height: 6),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: SingleChildScrollView(
+                  child: Text(changelog,
+                      style: const TextStyle(fontSize: 12, height: 1.6)),
                 ),
+              ),
             ],
-          ),
+          ],
         ),
+        actions: (ctx) => [
+          OutlinedButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('بستن'),
+          ),
+          if (downloadUrl.isNotEmpty)
+            FilledButton.icon(
+              icon: const Icon(Icons.download_rounded),
+              label: const Text('کپی لینک APK'),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: downloadUrl));
+                Navigator.pop(ctx);
+                showSnack('لینک دانلود کپی شد؛ در مرورگر باز کنید');
+              },
+            ),
+        ],
       );
     } catch (e) {
       showSnack('خطا در بررسی آپدیت: $e');
@@ -2539,7 +2532,7 @@ class _MainShellState extends State<MainShell> {
 
       if (silent) return;
       if (report.hasProblems) {
-        _showReportDialog(sub.name, report);
+        _showReportSheet(sub.name, report);
       } else {
         showSnack(
             'اشتراک «${sub.name}» بروزرسانی شد (${report.added} سرور) ✅');
@@ -2643,7 +2636,7 @@ class _MainShellState extends State<MainShell> {
     if (report.failed > 0 ||
         report.unsupported.isNotEmpty ||
         report.added == 0) {
-      _showReportDialog('افزودن دستی', report);
+      _showReportSheet('افزودن دستی', report);
     } else if (fresh.isEmpty) {
       showSnack('این سرورها قبلاً در لیست وجود داشتند.');
     } else {
@@ -2663,23 +2656,40 @@ class _MainShellState extends State<MainShell> {
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: EdgeInsets.fromLTRB(
-            16,
-            0,
-            16,
-            MediaQuery.of(ctx).viewInsets.bottom + 16,
+            20,
+            4,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
           ),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'افزودن سرور، کانفیگ JSON یا سابسکریپشن',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3B82F6).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.add_link_rounded,
+                          color: Color(0xFF3B82F6)),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'افزودن سرور یا اشتراک',
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 const Text(
-                  'پشتیبانی کامل از VLESS (Reality/XHTTP)، VMess، Trojan، Shadowsocks، SOCKS5 و JSON سفارشی.',
+                  'لینک vless، vmess، trojan، ss، socks یا لینک اشتراک یا JSON را بچسبانید.',
                   style: TextStyle(color: Colors.grey, fontSize: 12),
                 ),
                 const SizedBox(height: 14),
@@ -2689,11 +2699,7 @@ class _MainShellState extends State<MainShell> {
                   maxLines: 6,
                   textDirection: TextDirection.ltr,
                   decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    hintText:
-                        'https://... | vless://... | socks://... | {"outbounds": [...]}',
+                    hintText: 'vless://... یا https://...',
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.content_paste_rounded),
                       tooltip: 'چسباندن از کلیپ‌بورد',
@@ -2704,29 +2710,32 @@ class _MainShellState extends State<MainShell> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: nameCtrl,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
+                const SizedBox(height: 8),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: EdgeInsets.zero,
+                  title: const Text('تنظیمات بیشتر',
+                      style: TextStyle(fontSize: 13, color: Colors.grey)),
+                  children: [
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'نام دلخواه (اختیاری)',
+                      ),
                     ),
-                    labelText: 'نام دلخواه اشتراک (اختیاری)',
-                  ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: fallbackCtrl,
+                      textDirection: TextDirection.ltr,
+                      decoration: const InputDecoration(
+                        labelText: 'لینک جایگزین (اختیاری)',
+                        hintText: 'https://backup-domain.com/sub/...',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                 ),
                 const SizedBox(height: 10),
-                TextField(
-                  controller: fallbackCtrl,
-                  textDirection: TextDirection.ltr,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    labelText: 'لینک جایگزین / Fallback URL (اختیاری)',
-                    hintText: 'https://backup-domain.com/sub/...',
-                  ),
-                ),
-                const SizedBox(height: 14),
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -2734,8 +2743,8 @@ class _MainShellState extends State<MainShell> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  icon: const Icon(Icons.add_circle_outline_rounded),
-                  label: const Text('افزودن و پردازش هوشمند'),
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text('افزودن'),
                   onPressed: () {
                     final t = textCtrl.text;
                     final n = nameCtrl.text;
@@ -2755,6 +2764,93 @@ class _MainShellState extends State<MainShell> {
 
   // ------------------------------------------------------------------ ویرایشگر JSON سرور
 
+  Widget _kv(String k, String v) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Text(k, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              v,
+              textAlign: TextAlign.end,
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _infoSheet({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required Widget body,
+    required List<Widget> Function(BuildContext ctx) actions,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(icon, color, title),
+              const SizedBox(height: 16),
+              body,
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  for (var i = 0; i < actions(ctx).length; i++) ...[
+                    if (i > 0) const SizedBox(width: 10),
+                    Expanded(child: actions(ctx)[i]),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sheetHeader(IconData icon, Color color, String title, [String? subtitle]) {
+    return Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(icon, color: color),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+              if (subtitle != null)
+                Text(subtitle,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showJsonEditorModal(ServerItem server) {
     String prettyJson = server.fullJsonConfig;
     try {
@@ -2773,28 +2869,21 @@ class _MainShellState extends State<MainShell> {
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: EdgeInsets.fromLTRB(
-            16,
-            0,
-            16,
-            MediaQuery.of(ctx).viewInsets.bottom + 16,
+            20,
+            4,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'ویرایشگر کانفیگ JSON (Xray Core)',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
+              _sheetHeader(Icons.data_object_rounded, const Color(0xFF8B5CF6),
+                  'کانفیگ سرور', 'ویرایش JSON هستهٔ Xray'),
+              const SizedBox(height: 14),
               TextField(
                 controller: remarkCtrl,
-                decoration: InputDecoration(
-                  labelText: 'نام سرور (Remark)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                decoration: const InputDecoration(labelText: 'نام سرور'),
               ),
               const SizedBox(height: 10),
               SizedBox(
@@ -2805,11 +2894,6 @@ class _MainShellState extends State<MainShell> {
                   expands: true,
                   textDirection: TextDirection.ltr,
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -2818,7 +2902,7 @@ class _MainShellState extends State<MainShell> {
                   Expanded(
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.copy_rounded),
-                      label: const Text('کپی JSON'),
+                      label: const Text('کپی'),
                       onPressed: () {
                         Clipboard.setData(ClipboardData(text: jsonCtrl.text));
                         showSnack('کانفیگ JSON کپی شد');
@@ -2829,7 +2913,7 @@ class _MainShellState extends State<MainShell> {
                   Expanded(
                     child: FilledButton.icon(
                       icon: const Icon(Icons.save_rounded),
-                      label: const Text('ذخیره تغییرات'),
+                      label: const Text('ذخیره'),
                       onPressed: () {
                         try {
                           final parsed = jsonDecode(jsonCtrl.text);
@@ -2845,7 +2929,7 @@ class _MainShellState extends State<MainShell> {
                           });
                           savePersistentData();
                           Navigator.pop(ctx);
-                          showSnack('تغییرات کانفیگ ذخیره شد ✅');
+                          showSnack('تغییرات کانفیگ ذخیره شد');
                         } catch (e) {
                           showSnack('خطای سینتکس JSON: $e');
                         }
@@ -2863,10 +2947,57 @@ class _MainShellState extends State<MainShell> {
 
   // ------------------------------------------------------------------ دیالوگ گزارش
 
-  void _showReportDialog(String title, ImportReport r) {
+  Future<bool> _confirmSheet({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String message,
+    required String confirmLabel,
+  }) async {
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(icon, color, title),
+              const SizedBox(height: 14),
+              Text(message, style: const TextStyle(fontSize: 13, height: 1.6)),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('انصراف'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: color),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: Text(confirmLabel),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return ok == true;
+  }
+
+  void _showReportSheet(String title, ImportReport r) {
     if (!mounted) return;
     final lines = <String>[];
-
     if (r.added > 0) lines.add('✅ ${r.added} سرور با موفقیت خوانده شد');
     if (r.failed > 0) {
       lines.add('⚠️ ${r.failed} لینک ناقص بود یا قابل پردازش نبود');
@@ -2889,89 +3020,60 @@ class _MainShellState extends State<MainShell> {
       lines.add('❌ کد پاسخ سرور: ${r.httpStatus}');
     }
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: Text('گزارش پردازش: $title'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final l in lines)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(l),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(Icons.fact_check_rounded, const Color(0xFF3B82F6),
+                  'گزارش پردازش', title),
+              const SizedBox(height: 14),
+              for (final l in lines)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(l, style: const TextStyle(fontSize: 13, height: 1.6)),
+                ),
+              if (r.rawPreview.isNotEmpty && r.added == 0) ...[
+                const SizedBox(height: 6),
+                const Text('پیش‌نمایش پاسخ دریافتی:',
+                    style: TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                if (r.rawPreview.isNotEmpty && r.added == 0) ...[
-                  const SizedBox(height: 6),
-                  const Text(
-                    'پیش‌نمایش پاسخ دریافتی:',
-                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  child: SelectableText(
+                    r.rawPreview,
+                    textDirection: TextDirection.ltr,
+                    style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
                   ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.black26,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: SelectableText(
-                      r.rawPreview,
-                      textDirection: TextDirection.ltr,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ],
-            ),
+              const SizedBox(height: 14),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('متوجه شدم'),
+              ),
+            ],
           ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('متوجه شدم'),
-            ),
-          ],
         ),
       ),
     );
-  }
-
-  // ------------------------------------------------------------------ فیلتر و مرتب‌سازی سرورها
-
-  List<ServerItem> get filteredServers {
-    final list = servers.where((s) {
-      final matchGroup =
-          selectedGroupFilter == 'ALL' || s.subId == selectedGroupFilter;
-      final matchSearch = searchQuery.isEmpty ||
-          s.remark.toLowerCase().contains(searchQuery.toLowerCase()) ||
-          s.protocol.toLowerCase().contains(searchQuery.toLowerCase());
-      return matchGroup && matchSearch;
-    }).toList();
-
-    if (sortByPing) {
-      int? value(ServerItem server) =>
-          server.pingFor(selectedPingMode);
-
-      int rank(ServerItem server) {
-        final ping = value(server);
-        if (ping == null) return 1;
-        if (ping <= 0) return 2;
-        return 0;
-      }
-
-      list.sort((a, b) {
-        final rankCompare = rank(a).compareTo(rank(b));
-        if (rankCompare != 0) return rankCompare;
-        return (value(a) ?? 0).compareTo(value(b) ?? 0);
-      });
-    }
-    return list;
   }
 
   void deleteServer(ServerItem s) {
@@ -2989,48 +3091,57 @@ class _MainShellState extends State<MainShell> {
     final urlCtrl = TextEditingController(text: sub.url);
     final fbCtrl = TextEditingController(text: sub.fallbackUrl);
 
-    final saved = await showDialog(
+    final saved = await showModalBottomSheet<bool>(
       context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('ویرایش تنظیمات اشتراک'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: 'نام اشتراک'),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(Icons.rss_feed_rounded, const Color(0xFF3B82F6),
+                  'تنظیمات اشتراک'),
+              const SizedBox(height: 14),
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'نام اشتراک'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: urlCtrl,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(labelText: 'لینک اصلی'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: fbCtrl,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(
+                  labelText: 'لینک جایگزین (اختیاری)',
                 ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: urlCtrl,
-                  textDirection: TextDirection.ltr,
-                  decoration:
-                      const InputDecoration(labelText: 'لینک اصلی (URL)'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: fbCtrl,
-                  textDirection: TextDirection.ltr,
-                  decoration: const InputDecoration(
-                    labelText: 'لینک جایگزین (Fallback URL)',
+              ),
+              const SizedBox(height: 14),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-              ],
-            ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('ذخیره'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('لغو'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('ذخیره'),
-            ),
-          ],
         ),
       ),
     );
@@ -3047,30 +3158,17 @@ class _MainShellState extends State<MainShell> {
         }
       });
       await savePersistentData();
-      showSnack('اشتراک بروزرسانی شد ✅');
+      showSnack('اشتراک بروزرسانی شد');
     }
   }
 
   Future<void> deleteSubscription(SubscriptionItem sub) async {
-    final ok = await showDialog(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('حذف اشتراک'),
-          content: Text('اشتراک «${sub.name}» و تمام سرورهای آن حذف شوند؟'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('لغو'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('حذف'),
-            ),
-          ],
-        ),
-      ),
+    final ok = await _confirmSheet(
+      icon: Icons.delete_outline_rounded,
+      color: Colors.redAccent,
+      title: 'حذف اشتراک',
+      message: 'اشتراک «${sub.name}» و تمام سرورهای آن حذف شوند؟',
+      confirmLabel: 'حذف',
     );
     if (ok != true) return;
     setState(() {
@@ -3119,7 +3217,7 @@ class _MainShellState extends State<MainShell> {
             const NavigationDestination(
               icon: Icon(Icons.shield_outlined),
               selectedIcon: Icon(Icons.shield_rounded),
-              label: 'Home',
+              label: 'خانه',
             ),
             NavigationDestination(
               icon: Badge(
@@ -3128,15 +3226,15 @@ class _MainShellState extends State<MainShell> {
                 child: const Icon(Icons.dns_outlined),
               ),
               selectedIcon: const Icon(Icons.dns_rounded),
-              label: 'Servers',
+              label: 'سرورها',
             ),
             const NavigationDestination(
               icon: Icon(Icons.bar_chart_rounded),
-              label: 'Stats',
+              label: 'آمار',
             ),
             const NavigationDestination(
               icon: Icon(Icons.tune_rounded),
-              label: 'Settings',
+              label: 'تنظیمات',
             ),
           ],
         ),
@@ -3160,6 +3258,7 @@ class _MainShellState extends State<MainShell> {
       showSnack('هیچ سرور سالمی پیدا نشد');
       return;
     }
+    HapticFeedback.lightImpact();
     setState(() => selectedServerId = candidates.first.id);
     await savePersistentData();
     showSnack('بهترین سرور: ${candidates.first.remark}');
@@ -3178,6 +3277,8 @@ class _MainShellState extends State<MainShell> {
     return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
+  final Map<String, String> _countryByIp = {};
+
   Future<void> _resolveServerCountry(ServerItem server) async {
     if (server.countryCode.isNotEmpty) return;
     final ep = extractServerEndpoint(server.fullJsonConfig);
@@ -3186,8 +3287,13 @@ class _MainShellState extends State<MainShell> {
       final addr = await InternetAddress.lookup(ep.host)
           .timeout(const Duration(seconds: 4));
       if (addr.isEmpty) return;
-      final info = await _fetchJson('https://api.country.is/${addr.first.address}');
-      final code = (info?['country'] ?? '').toString();
+      final ip = addr.first.address;
+      var code = _countryByIp[ip] ?? '';
+      if (code.isEmpty) {
+        final info = await _fetchJson('https://api.country.is/$ip');
+        code = (info?['country'] ?? '').toString();
+        if (code.isNotEmpty) _countryByIp[ip] = code;
+      }
       if (code.isNotEmpty) server.countryCode = code;
     } catch (_) {}
   }
@@ -3346,51 +3452,51 @@ class _MainShellState extends State<MainShell> {
         .length;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Stats')),
+      appBar: AppBar(title: const Text('آمار')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          _statTile('Session time', st.duration, Icons.timer_outlined),
+          _statTile('مدت اتصال', st.duration, Icons.timer_outlined),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
-                child: _statTile('Downloaded', _fmtBytes(st.download),
+                child: _statTile('دریافتی', _fmtBytes(st.download),
                     Icons.arrow_downward_rounded),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _statTile(
-                    'Uploaded', _fmtBytes(st.upload), Icons.arrow_upward_rounded),
+                    'ارسالی', _fmtBytes(st.upload), Icons.arrow_upward_rounded),
               ),
             ],
           ),
-          _sectionTitle('SERVERS'),
+          _sectionTitle('سرورها'),
           _settingsCard([
             _settingsTile(
               icon: Icons.dns_outlined,
-              title: 'Total servers',
+              title: 'کل سرورها',
               trailing: Text('${servers.length}'),
             ),
             _settingsTile(
               icon: Icons.public_rounded,
-              title: 'Countries',
+              title: 'کشورها',
               trailing: Text('$countries'),
             ),
             _settingsTile(
               icon: Icons.speed_rounded,
-              title: 'Tested servers',
+              title: 'سرورهای تست‌شده',
               trailing: Text('${pings.length}'),
             ),
             _settingsTile(
               icon: Icons.bolt_rounded,
-              title: 'Best ping',
+              title: 'بهترین پینگ',
               trailing: Text(best == null ? '—' : '$best ms',
                   textDirection: TextDirection.ltr),
             ),
             _settingsTile(
               icon: Icons.show_chart_rounded,
-              title: 'Average ping',
+              title: 'میانگین پینگ',
               trailing: Text(avg == null ? '—' : '$avg ms',
                   textDirection: TextDirection.ltr),
             ),
@@ -3468,7 +3574,7 @@ class _MainShellState extends State<MainShell> {
         trailing: ping == null
             ? const Text('—', style: TextStyle(color: Colors.grey))
             : Text(
-                ping <= 0 ? 'Error' : '$ping ms',
+                ping <= 0 ? 'خطا' : '$ping ms',
                 textDirection: TextDirection.ltr,
                 style: TextStyle(
                   color: pingColor(ping),
@@ -3488,10 +3594,10 @@ class _MainShellState extends State<MainShell> {
         ? const Color(0xFF22C55E)
         : const Color(0xFF3B82F6);
     final statusTitle = connected
-        ? 'Connected'
+        ? 'متصل'
         : connecting
-            ? 'Connecting...'
-            : 'Tap to Connect';
+            ? 'در حال اتصال...'
+            : 'برای اتصال بزنید';
     final activePing = active?.pingFor(PingMode.real);
 
     return SafeArea(
@@ -3523,6 +3629,7 @@ class _MainShellState extends State<MainShell> {
           const SizedBox(height: 16),
           Center(
             child: _PowerButton(
+              lowPower: lowPowerMode,
               connected: connected,
               connecting: connecting,
               accent: accent,
@@ -3555,7 +3662,7 @@ class _MainShellState extends State<MainShell> {
           _homeCard(
             icon: Icons.signal_cellular_alt_rounded,
             iconColor: accent,
-            title: connected ? (active?.remark ?? 'Connected') : 'No Connection',
+            title: connected ? (active?.remark ?? 'متصل') : 'بدون اتصال',
             subtitle: connected && activePing != null && activePing > 0
                 ? '$activePing ms'
                 : null,
@@ -3565,8 +3672,7 @@ class _MainShellState extends State<MainShell> {
           _homeCard(
             icon: Icons.bolt_rounded,
             iconColor: const Color(0xFFF59E0B),
-            title: 'Best Server',
-            subtitle: 'Auto Select',
+            title: 'بهترین سرور',
             onTap: _autoSelectBestServer,
           ),
           const SizedBox(height: 22),
@@ -3574,12 +3680,12 @@ class _MainShellState extends State<MainShell> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Servers',
+                'سرورها',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
               TextButton(
                 onPressed: () => setState(() => currentTab = 1),
-                child: const Text('See All'),
+                child: const Text('همه'),
               ),
             ],
           ),
@@ -3601,12 +3707,59 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  Widget _emptyState({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 40, color: color),
+            ),
+            const SizedBox(height: 16),
+            Text(title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(subtitle,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey, height: 1.6)),
+            ],
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.add_rounded),
+                label: Text(actionLabel),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _pingPill(int? ping) {
     final color = ping == null ? Colors.grey : pingColor(ping);
     final text = ping == null
         ? '—'
         : ping <= 0
-            ? 'Error'
+            ? 'خطا'
             : '$ping ms';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -3632,7 +3785,7 @@ class _MainShellState extends State<MainShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Servers · ${list.length}'),
+        title: Text('سرورها · ${list.length}'),
         actions: [
           IconButton(
             icon: const Icon(Icons.support_agent_rounded),
@@ -3735,27 +3888,16 @@ class _MainShellState extends State<MainShell> {
             ),
           Expanded(
             child: list.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.dns_outlined,
-                            size: 56, color: Colors.grey),
-                        const SizedBox(height: 10),
-                        Text(
-                          servers.isEmpty
-                              ? 'هنوز سروری اضافه نشده است'
-                              : 'سروری با این عبارت پیدا نشد',
-                          style: const TextStyle(color: Colors.grey),
-                        ),
-                        const SizedBox(height: 14),
-                        FilledButton.icon(
-                          onPressed: _showRequestServerFromCreatorDialog,
-                          icon: const Icon(Icons.support_agent_rounded),
-                          label: const Text('دریافت سرور از سازنده'),
-                        ),
-                      ],
-                    ),
+                ? _emptyState(
+                    icon: Icons.dns_outlined,
+                    title: servers.isEmpty
+                        ? 'هنوز سروری اضافه نشده است'
+                        : 'سروری با این عبارت پیدا نشد',
+                    subtitle: servers.isEmpty
+                        ? 'لینک سرور یا اشتراک را اضافه کنید، یا از سازنده درخواست بدهید.'
+                        : null,
+                    actionLabel: servers.isEmpty ? 'افزودن سرور' : null,
+                    onAction: servers.isEmpty ? _showAddSheet : null,
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
@@ -3960,26 +4102,24 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _subscriptionTile(SubscriptionItem sub) {
-    final details = <String>[
-      '${sub.serverCount} سرور',
-      'بروزرسانی: ${fmtAgo(sub.updatedAt)}',
-    ];
+    final hasUsage = sub.totalBytes > 0;
+    final usage =
+        hasUsage ? (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0) : 0.0;
+    String? expiry;
     if (sub.expireSec > 0) {
       final days = DateTime.fromMillisecondsSinceEpoch(sub.expireSec * 1000)
           .difference(DateTime.now())
           .inDays;
-      details.add(days >= 0 ? '$days روز باقی‌مانده' : 'منقضی شده');
+      expiry = days >= 0 ? '$days روز مانده' : 'منقضی شده';
     }
-    final hasUsage = sub.totalBytes > 0;
-    final usage =
-        hasUsage ? (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0) : 0.0;
+    final scheme = Theme.of(context).colorScheme;
 
     return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 4, 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(20),
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: BorderRadius.circular(16),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3988,24 +4128,24 @@ class _MainShellState extends State<MainShell> {
               Expanded(
                 child: Text(
                   sub.name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                 ),
               ),
               if (sub.isUpdating)
                 const Padding(
                   padding: EdgeInsets.all(12),
                   child: SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 )
               else
                 IconButton(
-                  icon: const Icon(Icons.refresh_rounded),
+                  icon: const Icon(Icons.refresh_rounded, size: 20),
+                  tooltip: 'بروزرسانی',
                   onPressed: () => updateSubscription(sub),
                 ),
               PopupMenuButton<String>(
@@ -4018,51 +4158,40 @@ class _MainShellState extends State<MainShell> {
                   if (v == 'delete') deleteSubscription(sub);
                 },
                 itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'edit',
-                    child: Text('ویرایش نام، لینک و Fallback'),
-                  ),
-                  PopupMenuItem(value: 'copy', child: Text('کپی لینک اشتراک')),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text('حذف اشتراک',
-                        style: TextStyle(color: Colors.red)),
-                  ),
+                  PopupMenuItem(value: 'edit', child: Text('تنظیمات اشتراک')),
+                  PopupMenuItem(value: 'copy', child: Text('کپی لینک')),
+                  PopupMenuItem(value: 'delete', child: Text('حذف')),
                 ],
               ),
             ],
           ),
-          Text(
-            details.join(' • '),
-            style: const TextStyle(color: Colors.grey, fontSize: 11),
-          ),
-          if (sub.fallbackUrl.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'Fallback فعال: ${sub.fallbackUrl}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.blueAccent, fontSize: 11),
-              ),
+          Padding(
+            padding: const EdgeInsets.only(left: 0, top: 2),
+            child: Text(
+              [
+                '${sub.serverCount} سرور',
+                'بروزرسانی ${fmtAgo(sub.updatedAt)}',
+                if (expiry != null) expiry,
+              ].join('  •  '),
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
             ),
+          ),
           if (hasUsage) ...[
             const SizedBox(height: 10),
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(value: usage, minHeight: 7),
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: usage.toDouble(),
+                minHeight: 6,
+                color: usage > 0.9 ? Colors.redAccent : scheme.primary,
+                backgroundColor: scheme.primary.withOpacity(0.12),
+              ),
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 4),
             Text(
-              'مصرف‌شده: ${fmtBytes(sub.usedBytes)} از ${fmtBytes(sub.totalBytes)}',
-              style: const TextStyle(color: Colors.grey, fontSize: 11),
-            ),
-          ],
-          if (sub.lastError != null) ...[
-            const SizedBox(height: 6),
-            Text(
-              '⚠️ ${sub.lastError}',
-              style: const TextStyle(color: Colors.orangeAccent, fontSize: 11),
+              '${_fmtBytes(sub.usedBytes)} / ${_fmtBytes(sub.totalBytes)}',
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
             ),
           ],
         ],
@@ -4088,7 +4217,7 @@ class _MainShellState extends State<MainShell> {
             children: [
               const Icon(Icons.public_rounded, size: 18),
               const SizedBox(width: 6),
-              const Text('IP', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('IP و کشور', style: TextStyle(fontWeight: FontWeight.bold)),
               const Spacer(),
               if (isCheckingIp)
                 const SizedBox(
@@ -4126,107 +4255,140 @@ class _MainShellState extends State<MainShell> {
 
   void _editPingUrl() {
     final controller = TextEditingController(text: pingTestUrl);
-    showDialog(
+    showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('آدرس تست پینگ'),
-        content: TextField(
-          controller: controller,
-          textDirection: TextDirection.ltr,
-          decoration: const InputDecoration(hintText: 'https://...'),
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            4,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(Icons.link_rounded, const Color(0xFF3B82F6),
+                  'آدرس تست پینگ'),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                textDirection: TextDirection.ltr,
+                decoration: const InputDecoration(hintText: 'https://...'),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('انصراف'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        final v = controller.text.trim();
+                        if (v.startsWith('https://') || v.startsWith('http://')) {
+                          setState(() => pingTestUrl = v);
+                          savePersistentData();
+                        }
+                        Navigator.pop(ctx);
+                      },
+                      child: const Text('ذخیره'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('انصراف'),
-          ),
-          TextButton(
-            onPressed: () {
-              final v = controller.text.trim();
-              if (v.startsWith('https://') || v.startsWith('http://')) {
-                setState(() => pingTestUrl = v);
-                savePersistentData();
-              }
-              Navigator.pop(ctx);
-            },
-            child: const Text('ذخیره'),
-          ),
-        ],
       ),
     );
   }
 
   Widget _buildSettingsTab() {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text('تنظیمات')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
-          _sectionTitle('APPEARANCE'),
+          _sectionTitle('ظاهر'),
           SegmentedButton<AppThemeModeSetting>(
             segments: const [
               ButtonSegment(
                 value: AppThemeModeSetting.system,
-                label: Text('System'),
+                label: Text('سیستم'),
                 icon: Icon(Icons.brightness_auto_rounded),
               ),
               ButtonSegment(
                 value: AppThemeModeSetting.dark,
-                label: Text('Dark'),
+                label: Text('تیره'),
                 icon: Icon(Icons.dark_mode_rounded),
               ),
               ButtonSegment(
                 value: AppThemeModeSetting.light,
-                label: Text('Light'),
+                label: Text('روشن'),
                 icon: Icon(Icons.light_mode_rounded),
               ),
             ],
             selected: {widget.currentTheme},
             onSelectionChanged: (val) => widget.onThemeChanged(val.first),
           ),
-          _sectionTitle('ROUTING'),
+          _sectionTitle('مسیریابی'),
           _settingsCard([
             _settingsSwitch(
-              title: 'Bypass Iran',
-              subtitle: '.ir domains and Iranian IPs connect directly',
+              title: 'بای‌پس ایران',
+              subtitle: 'دامنه‌های .ir و آی‌پی‌های ایران مستقیم باز می‌شوند',
               value: bypassIran,
               onChanged: (v) => setState(() => bypassIran = v),
             ),
             _settingsSwitch(
-              title: 'Bypass local network',
-              subtitle: 'LAN traffic connects directly',
+              title: 'بای‌پس شبکهٔ محلی',
+              subtitle: 'ترافیک شبکهٔ محلی مستقیم وصل می‌شود',
               value: bypassLan,
               onChanged: (v) => setState(() => bypassLan = v),
             ),
           ]),
-          _sectionTitle('ADVANCED'),
+          _sectionTitle('پیشرفته'),
           _settingsCard([
             _settingsSwitch(
-              title: 'Mux',
-              subtitle: 'Keep off for Reality and XHTTP servers',
+              title: 'تجمیع اتصال (Mux)',
+              subtitle: 'برای Reality و XHTTP خاموش بماند',
               value: enableMux,
               onChanged: (v) => setState(() => enableMux = v),
             ),
             _settingsSwitch(
-              title: 'Allow insecure TLS',
-              subtitle: 'Accept invalid certificates',
+              title: 'پذیرش TLS نامعتبر',
+              subtitle: 'گواهی‌های نامعتبر را قبول کن',
               value: allowInsecureDefault,
               onChanged: (v) => setState(() => allowInsecureDefault = v),
             ),
             _settingsSwitch(
-              title: 'Apply routing to ping',
-              subtitle: 'Use bypass rules during real ping',
+              title: 'اعمال مسیریابی روی پینگ',
+              subtitle: 'قوانین بای‌پس را در پینگ اعمال کن',
               value: pingBypassRouting,
               onChanged: (v) => setState(() => pingBypassRouting = v),
             ),
             _settingsSwitch(
-              title: 'Best of two pings',
-              subtitle: 'Send two requests and keep the faster',
+              title: 'بهترین از دو پینگ',
+              subtitle: 'دو درخواست بفرست و سریع‌تر را نگه دار',
               value: pingBestOfTwo,
               onChanged: (v) => setState(() => pingBestOfTwo = v),
             ),
+            _settingsSwitch(
+              title: 'حالت کم‌مصرف',
+              subtitle: 'انیمیشن و هالهٔ دکمهٔ اتصال خاموش می‌شوند',
+              value: lowPowerMode,
+              onChanged: (v) => setState(() => lowPowerMode = v),
+            ),
             ListTile(
-              title: const Text('Ping timeout', style: TextStyle(fontSize: 14)),
+              title: const Text('مهلت پینگ', style: TextStyle(fontSize: 14)),
               trailing: SegmentedButton<int>(
                 segments: const [
                   ButtonSegment(value: 5, label: Text('5s')),
@@ -4241,7 +4403,7 @@ class _MainShellState extends State<MainShell> {
             ),
             _settingsTile(
               icon: Icons.link_rounded,
-              title: 'Ping test URL',
+              title: 'آدرس تست پینگ',
               subtitle: pingTestUrl,
               trailing: const Icon(Icons.edit_rounded, size: 18),
               onTap: _editPingUrl,
@@ -4251,7 +4413,7 @@ class _MainShellState extends State<MainShell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Preferred DNS',
+                  const Text('DNS ترجیحی',
                       style: TextStyle(fontSize: 14)),
                   const SizedBox(height: 10),
                   Wrap(
@@ -4273,19 +4435,19 @@ class _MainShellState extends State<MainShell> {
               ),
             ),
           ]),
-          _sectionTitle('SUPPORT'),
+          _sectionTitle('پشتیبانی'),
           _settingsCard([
             _settingsTile(
               icon: Icons.support_agent_rounded,
               color: const Color(0xFF10B981),
-              title: 'Request a server from the creator',
+              title: 'درخواست سرور از سازنده',
               onTap: _showRequestServerFromCreatorDialog,
             ),
             _settingsTile(
               icon: Icons.system_update_rounded,
               color: Colors.blueAccent,
-              title: 'Check for app update',
-              subtitle: 'Current version $kAppVersion',
+              title: 'بررسی بروزرسانی برنامه',
+              subtitle: 'نسخهٔ فعلی $kAppVersion',
               trailing: isCheckingUpdate
                   ? const SizedBox(
                       width: 18,
@@ -4298,14 +4460,14 @@ class _MainShellState extends State<MainShell> {
             _settingsTile(
               icon: Icons.memory_rounded,
               color: Colors.greenAccent,
-              title: 'Xray core',
+              title: 'هستهٔ Xray',
               subtitle: coreVersion,
               trailing: const Icon(Icons.sync_rounded, size: 20),
               onTap: checkForXrayCoreUpdate,
             ),
             _settingsTile(
               icon: Icons.fingerprint_rounded,
-              title: 'Device ID',
+              title: 'شناسهٔ دستگاه',
               subtitle: hwid,
               trailing: const Icon(Icons.copy_rounded, size: 18),
               onTap: () {
@@ -4314,12 +4476,12 @@ class _MainShellState extends State<MainShell> {
               },
             ),
           ]),
-          _sectionTitle('DANGER ZONE'),
+          _sectionTitle('منطقهٔ خطر'),
           _settingsCard([
             _settingsTile(
               icon: Icons.delete_sweep_rounded,
               color: Colors.redAccent,
-              title: 'Delete all servers and subscriptions',
+              title: 'حذف همهٔ سرورها و اشتراک‌ها',
               onTap: _confirmClearAll,
             ),
           ]),
@@ -4329,25 +4491,12 @@ class _MainShellState extends State<MainShell> {
   }
 
   Future<void> _confirmClearAll() async {
-    final ok = await showDialog(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('پاک کردن کل اطلاعات؟'),
-          content: const Text('تمام سرورها و اشتراک‌ها حذف خواهند شد.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('لغو'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('حذف همه'),
-            ),
-          ],
-        ),
-      ),
+    final ok = await _confirmSheet(
+      icon: Icons.delete_sweep_rounded,
+      color: Colors.redAccent,
+      title: 'پاک کردن کل اطلاعات؟',
+      message: 'تمام سرورها و اشتراک‌ها حذف خواهند شد.',
+      confirmLabel: 'حذف همه',
     );
     if (ok != true) return;
     if (isConnected || isConnecting) await flutterV2ray.stopV2Ray();
@@ -4370,8 +4519,10 @@ class _PowerButton extends StatelessWidget {
   final bool connecting;
   final Color accent;
   final VoidCallback onTap;
+  final bool lowPower;
 
   const _PowerButton({
+    this.lowPower = false,
     required this.connected,
     required this.connecting,
     required this.accent,
@@ -4389,13 +4540,15 @@ class _PowerButton extends StatelessWidget {
           alignment: Alignment.center,
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 400),
+              duration: lowPower ? Duration.zero : const Duration(milliseconds: 400),
               width: 240,
               height: 240,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(color: accent, width: 3),
-                boxShadow: [
+                boxShadow: lowPower
+                    ? const []
+                    : [
                   BoxShadow(
                     color: accent.withOpacity(0.4),
                     blurRadius: 36,
@@ -4405,7 +4558,7 @@ class _PowerButton extends StatelessWidget {
               ),
             ),
             AnimatedContainer(
-              duration: const Duration(milliseconds: 400),
+              duration: lowPower ? Duration.zero : const Duration(milliseconds: 400),
               width: 190,
               height: 190,
               decoration: BoxDecoration(
@@ -4440,6 +4593,160 @@ class _PowerButton extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+//  راهنمای اولین اجرا (فقط یک بار نمایش داده می‌شود)
+// ---------------------------------------------------------------------------
+
+class OnboardingScreen extends StatefulWidget {
+  const OnboardingScreen({super.key});
+
+  @override
+  State<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends State<OnboardingScreen> {
+  final PageController _controller = PageController();
+  int _index = 0;
+
+  static const List<(IconData, String, String)> _pages = [
+    (
+      Icons.shield_rounded,
+      'به SHIN خوش آمدید',
+      'اتصال امن و سریع با یک لمس روی دکمهٔ اصلی.'
+    ),
+    (
+      Icons.add_link_rounded,
+      'سرور اضافه کنید',
+      'لینک سرور یا اشتراک را از کلیپ‌بورد یا از دکمهٔ افزودن وارد کنید.'
+    ),
+    (
+      Icons.speed_rounded,
+      'بهترین سرور را پیدا کنید',
+      'با تست پینگ سرورها را مقایسه کنید یا از «بهترین سرور» استفاده کنید.'
+    ),
+  ];
+
+  Future<void> _finish() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_done', true);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final last = _index == _pages.length - 1;
+    const accent = Color(0xFF3B82F6);
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _finish,
+                    child: const Text('رد کردن'),
+                  ),
+                ),
+                Expanded(
+                  child: PageView(
+                    controller: _controller,
+                    onPageChanged: (i) => setState(() => _index = i),
+                    children: [
+                      for (final page in _pages)
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: accent.withOpacity(0.15),
+                              ),
+                              child: Icon(page.$1, size: 56, color: accent),
+                            ),
+                            const SizedBox(height: 28),
+                            Text(
+                              page.$2,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              page.$3,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                                height: 1.7,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < _pages.length; i++)
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        width: i == _index ? 20 : 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: i == _index
+                              ? accent
+                              : Colors.grey.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: last
+                        ? _finish
+                        : () => _controller.nextPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOut,
+                            ),
+                    child: Text(last ? 'شروع' : 'بعدی'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
