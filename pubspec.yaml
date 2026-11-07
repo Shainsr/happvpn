@@ -1,7 +1,7 @@
 name: happ_vpn
 description: "SHIN VPN & Proxy Utility Client"
 publish_to: 'none'
-version: 4.11.0+42
+version: 1.00.0+43
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -12,6 +12,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_v2ray_client: ^3.5.0
   shared_preferences: ^2.3.3
+  path_provider: ^2.1.4
+  flutter_local_notifications: ^17.2.2
+  workmanager: ^0.5.2
 
 dev_dependencies:
   flutter_test:
