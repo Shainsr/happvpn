@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-  flutter_v2ray: ^1.0.10
+  flutter_v2ray_client: ^3.5.0
   shared_preferences: ^2.3.3
 
 dev_dependencies:
