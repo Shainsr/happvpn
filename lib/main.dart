@@ -168,6 +168,65 @@ void shinUpdateDispatcher() {
   });
 }
 
+
+const Map<String, String> kCountryNames = {
+  'DE': 'آلمان', 'US': 'آمریکا', 'GB': 'انگلیس', 'FI': 'فنلاند',
+  'NL': 'هلند', 'TR': 'ترکیه', 'FR': 'فرانسه', 'CA': 'کانادا',
+  'JP': 'ژاپن', 'SG': 'سنگاپور', 'AE': 'امارات', 'IR': 'ایران',
+  'RU': 'روسیه', 'SE': 'سوئد', 'CH': 'سوئیس', 'HK': 'هنگ‌کنگ',
+  'AU': 'استرالیا', 'NO': 'نروژ', 'IT': 'ایتالیا', 'ES': 'اسپانیا',
+  'KR': 'کره جنوبی', 'IN': 'هند', 'AT': 'اتریش', 'PL': 'لهستان',
+  'CZ': 'چک', 'RO': 'رومانی', 'UA': 'اوکراین', 'BG': 'بلغارستان',
+  'MD': 'مولداوی', 'AL': 'آلبانی', 'BR': 'برزیل', 'ID': 'اندونزی',
+};
+
+const Map<String, List<String>> kCountryKeywords = {
+  'DE': ['germany', 'german', 'آلمان', 'frankfurt', 'berlin'],
+  'US': ['usa', 'united states', 'america', 'آمریکا', 'new york', 'los angeles'],
+  'GB': ['united kingdom', 'england', 'london', 'انگلیس', 'بریتانیا'],
+  'FI': ['finland', 'فنلاند', 'helsinki'],
+  'NL': ['netherlands', 'holland', 'هلند', 'amsterdam'],
+  'TR': ['turkey', 'turkiye', 'ترکیه', 'istanbul'],
+  'FR': ['france', 'فرانسه', 'paris'],
+  'CA': ['canada', 'کانادا'],
+  'JP': ['japan', 'ژاپن', 'tokyo'],
+  'SG': ['singapore', 'سنگاپور'],
+  'AE': ['uae', 'emirates', 'امارات', 'dubai'],
+  'IR': ['iran', 'ایران', 'tehran', 'تهران'],
+  'RU': ['russia', 'روسیه', 'moscow'],
+  'SE': ['sweden', 'سوئد'],
+  'CH': ['switzerland', 'سوئیس'],
+  'HK': ['hong kong', 'هنگ'],
+  'AU': ['australia', 'استرالیا'],
+  'NO': ['norway', 'نروژ'],
+  'IT': ['italy', 'ایتالیا'],
+  'ES': ['spain', 'اسپانیا'],
+  'KR': ['korea', 'کره'],
+  'IN': ['india', 'هند'],
+  'AT': ['austria', 'اتریش'],
+  'PL': ['poland', 'لهستان'],
+  'UA': ['ukraine', 'اوکراین'],
+};
+
+/// حدس کشور از روی پرچم ایموجی یا نام کشور داخل نام سرور (بدون اینترنت)
+String detectCountryFromText(String text) {
+  final runes = text.runes.toList();
+  for (var i = 0; i + 1 < runes.length; i++) {
+    final a = runes[i];
+    final b = runes[i + 1];
+    if (a >= 0x1F1E6 && a <= 0x1F1FF && b >= 0x1F1E6 && b <= 0x1F1FF) {
+      return String.fromCharCodes([a - 0x1F1E6 + 0x41, b - 0x1F1E6 + 0x41]);
+    }
+  }
+  final lower = text.toLowerCase();
+  for (final entry in kCountryKeywords.entries) {
+    for (final kw in entry.value) {
+      if (lower.contains(kw)) return entry.key;
+    }
+  }
+  return '';
+}
+
 Future<void> vpnBackgroundMain() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
@@ -1678,6 +1737,7 @@ class _MainShellState extends State<MainShell> {
   final bool lowPowerMode = true;
   final Set<String> _sortedGroups = <String>{};
   final Set<String> _testingGroups = <String>{};
+  final Set<String> _countryGroups = <String>{};
   final Set<String> _collapsedGroups = <String>{};
   bool bypassLan = true;
   bool bypassIran = true;
@@ -1970,6 +2030,7 @@ class _MainShellState extends State<MainShell> {
       await prefs.setBool('pingBestOfTwo', pingBestOfTwo);
       await prefs.setBool('pingBypassRouting', pingBypassRouting);
       await prefs.setString('pingTestUrl', pingTestUrl);
+      await prefs.setStringList('countryGroups', _countryGroups.toList());
 
       final active = selectedServer;
       if (active != null) {
@@ -2041,6 +2102,9 @@ class _MainShellState extends State<MainShell> {
         pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? false;
         pingBypassRouting = prefs.getBool('pingBypassRouting') ?? false;
         pingTestUrl = prefs.getString('pingTestUrl') ?? kDefaultPingUrl;
+        _countryGroups
+          ..clear()
+          ..addAll(prefs.getStringList('countryGroups') ?? const <String>[]);
         servers = loadedServers;
         subscriptions = loadedSubs;
         if (selectedServerId.isEmpty && servers.isNotEmpty) {
@@ -4107,6 +4171,7 @@ class _MainShellState extends State<MainShell> {
   }) {
     final collapsed = _collapsedGroups.contains(id);
     final sorted = _sortedGroups.contains(id);
+    final byCountry = _countryGroups.contains(id);
     final testing = _testingGroups.contains(id);
     final scheme = Theme.of(context).colorScheme;
     final divider = Theme.of(context).dividerColor;
@@ -4226,6 +4291,17 @@ class _MainShellState extends State<MainShell> {
                           }
                         });
                       }
+                      if (v == 'country') {
+                        setState(() {
+                          if (byCountry) {
+                            _countryGroups.remove(id);
+                          } else {
+                            _countryGroups.add(id);
+                          }
+                        });
+                        savePersistentData();
+                        if (!byCountry) _ensureCountries(servers);
+                      }
                       if (sub != null && v == 'edit') {
                         editSubscriptionDialog(sub);
                       }
@@ -4241,8 +4317,14 @@ class _MainShellState extends State<MainShell> {
                       PopupMenuItem<String>(
                         value: 'sort',
                         child: Text(sorted
-                            ? 'دسته‌بندی: پیش‌فرض'
-                            : 'دسته‌بندی: بر اساس پینگ'),
+                            ? 'مرتب‌سازی: پیش‌فرض'
+                            : 'مرتب‌سازی: بر اساس پینگ'),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'country',
+                        child: Text(byCountry
+                            ? 'گروه‌بندی: بدون کشور'
+                            : 'گروه‌بندی: بر اساس کشور'),
                       ),
                       if (sub != null) ...[
                         const PopupMenuItem<String>(
@@ -4317,14 +4399,90 @@ class _MainShellState extends State<MainShell> {
             ),
             if (!collapsed) ...[
               Divider(height: 1, color: divider),
-              for (var i = 0; i < ordered.length; i++) ...[
-                _serverTile(ordered[i]),
-                if (i < ordered.length - 1) Divider(height: 1, color: divider),
-              ],
+              if (byCountry)
+                _countryBlocks(servers, sorted)
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < ordered.length; i++) ...[
+                      _serverTile(ordered[i]),
+                      if (i < ordered.length - 1)
+                        Divider(height: 1, color: divider),
+                    ],
+                  ],
+                ),
             ],
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _ensureCountries(List<ServerItem> list) async {
+    final missing = list.where((x) => x.countryCode.isEmpty).toList();
+    if (missing.isEmpty) return;
+    var next = 0;
+    Future<void> worker() async {
+      while (mounted && next < missing.length) {
+        final server = missing[next++];
+        await _resolveServerCountry(server);
+        if (server.countryCode.isEmpty) {
+          server.countryCode = detectCountryFromText(server.remark);
+        }
+        if (mounted) setState(() {});
+      }
+    }
+    await Future.wait([
+      for (var i = 0; i < min(kPingConcurrency, missing.length); i++) worker(),
+    ]);
+    await savePersistentData();
+  }
+
+  Widget _countryBlocks(List<ServerItem> list, bool sorted) {
+    final divider = Theme.of(context).dividerColor;
+    final buckets = <String, List<ServerItem>>{};
+    for (final server in list) {
+      final code = server.countryCode.isEmpty ? '??' : server.countryCode.toUpperCase();
+      buckets.putIfAbsent(code, () => <ServerItem>[]).add(server);
+    }
+    final keys = buckets.keys.toList()
+      ..sort((a, b) {
+        if (a == '??') return 1;
+        if (b == '??') return -1;
+        return (kCountryNames[a] ?? a).compareTo(kCountryNames[b] ?? b);
+      });
+
+    final children = <Widget>[];
+    for (final key in keys) {
+      final items = _orderServers(buckets[key]!, sort: sorted);
+      children.add(Container(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+        child: Row(
+          children: [
+            Text(key == '??' ? '🌐' : flagOf(key),
+                style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                key == '??' ? 'نامشخص' : (kCountryNames[key] ?? key),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+            ),
+            Text('${items.length}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+      ));
+      for (var i = 0; i < items.length; i++) {
+        children.add(_serverTile(items[i]));
+        if (i < items.length - 1) children.add(Divider(height: 1, color: divider));
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
     );
   }
 
