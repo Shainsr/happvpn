@@ -1545,6 +1545,7 @@ class _MainShellState extends State<MainShell> {
 
   bool isProxyOnly = false;
   bool lowPowerMode = false;
+  final Set<String> _collapsedGroups = <String>{};
   bool bypassLan = true;
   bool bypassIran = true;
   bool enableMux = false;
@@ -2092,28 +2093,56 @@ class _MainShellState extends State<MainShell> {
 
   // ------------------------------------------------------------------ اتصال
 
+  bool _vpnBusy = false;
+
+  Future<void> _waitForState(String target, {int ms = 2500}) async {
+    final end = DateTime.now().add(Duration(milliseconds: ms));
+    while (DateTime.now().isBefore(end) && v2rayStatus.state != target) {
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+  }
+
+  Future<void> _stopVpn() async {
+    if (mounted) {
+      setState(() => v2rayStatus = V2RayStatus(state: 'DISCONNECTING'));
+    }
+    // چند بار تلاش می‌کنیم تا هسته واقعاً بسته شود و وضعیت از هسته برسد
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await flutterV2ray.stopV2Ray();
+      } catch (_) {}
+      await _waitForState('DISCONNECTED');
+      if (v2rayStatus.state == 'DISCONNECTED') break;
+    }
+    if (mounted && v2rayStatus.state != 'DISCONNECTED') {
+      setState(() => v2rayStatus = V2RayStatus(state: 'DISCONNECTED'));
+    }
+    await _syncNativeConnectionState(false, 'DISCONNECTED');
+  }
+
   Future<void> toggleVpn() async {
+    if (_vpnBusy) return;
+    _vpnBusy = true;
     HapticFeedback.mediumImpact();
-    if (isConnected || isConnecting) {
-      await flutterV2ray.stopV2Ray();
-      await _syncNativeConnectionState(false, 'DISCONNECTED');
-      return;
-    }
-
-    final target = selectedServer;
-    if (target == null) {
-      showSnack('لطفاً ابتدا یک سرور اضافه کنید یا از سازنده سرور بگیرید!');
-      return;
-    }
-
-    if (!isProxyOnly && !await flutterV2ray.requestPermission()) {
-      showSnack('مجوز ساخت تونل VPN توسط سیستم صادر نشد!');
-      return;
-    }
-
-    await savePersistentData();
-    final finalConfig = buildCustomizedConfig(target.fullJsonConfig);
     try {
+      if (isConnected || isConnecting) {
+        await _stopVpn();
+        return;
+      }
+
+      final target = selectedServer;
+      if (target == null) {
+        showSnack('لطفاً ابتدا یک سرور اضافه کنید یا از سازنده بگیرید!');
+        return;
+      }
+
+      if (!isProxyOnly && !await flutterV2ray.requestPermission()) {
+        showSnack('مجوز ساخت تونل VPN توسط سیستم صادر نشد!');
+        return;
+      }
+
+      await savePersistentData();
+      final finalConfig = buildCustomizedConfig(target.fullJsonConfig);
       await flutterV2ray.startV2Ray(
         remark: target.remark,
         config: finalConfig,
@@ -2123,6 +2152,8 @@ class _MainShellState extends State<MainShell> {
       );
     } catch (e) {
       showSnack('خطا در برقراری اتصال: $e');
+    } finally {
+      _vpnBusy = false;
     }
   }
 
@@ -2140,6 +2171,18 @@ class _MainShellState extends State<MainShell> {
   // Via Proxy: درخواست HTTP به آدرس تست، از داخل تونل/پروکسی سرور انجام می‌شود.
   // اگر «دو درخواست» فعال باشد، بهترین نتیجه از دو اجرا انتخاب می‌شود.
   Future<int> _measureViaProxy(ServerItem server) async {
+    if (isConnected) {
+      // وقتی وصلیم، فقط سرور فعال را با هستهٔ در حال اجرا تست می‌کنیم
+      if (server.id != selectedServerId) return -1;
+      try {
+        final ms = await flutterV2ray
+            .getConnectedServerDelay(url: pingTestUrl)
+            .timeout(Duration(seconds: pingProxyTimeoutSec));
+        return ms > 0 ? ms : -1;
+      } catch (_) {
+        return -1;
+      }
+    }
     final raw = server.fullJsonConfig;
     final cfg = pingBypassRouting
         ? buildCustomizedConfig(raw)
@@ -2194,7 +2237,12 @@ class _MainShellState extends State<MainShell> {
   Future<void> testAllPings() async {
     if (isTestingAll || servers.isEmpty) return;
     final mode = selectedPingMode;
-    final queue = List<ServerItem>.from(filteredServers);
+    final queue = isConnected
+        ? <ServerItem>[if (selectedServer != null) selectedServer!]
+        : List<ServerItem>.from(servers);
+    if (isConnected) {
+      showSnack('هنگام اتصال فقط سرور فعال تست می‌شود');
+    }
     if (queue.isEmpty) return;
 
     setState(() {
@@ -3200,45 +3248,7 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Scaffold(
-        body: IndexedStack(
-          index: currentTab,
-          children: [
-            _buildHomeTab(),
-            _buildServersTab(),
-            _buildStatsTab(),
-            _buildSettingsTab(),
-          ],
-        ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: currentTab,
-          onDestinationSelected: (idx) => setState(() => currentTab = idx),
-          destinations: [
-            const NavigationDestination(
-              icon: Icon(Icons.shield_outlined),
-              selectedIcon: Icon(Icons.shield_rounded),
-              label: 'خانه',
-            ),
-            NavigationDestination(
-              icon: Badge(
-                isLabelVisible: servers.isNotEmpty,
-                label: Text('${servers.length}'),
-                child: const Icon(Icons.dns_outlined),
-              ),
-              selectedIcon: const Icon(Icons.dns_rounded),
-              label: 'سرورها',
-            ),
-            const NavigationDestination(
-              icon: Icon(Icons.bar_chart_rounded),
-              label: 'آمار',
-            ),
-            const NavigationDestination(
-              icon: Icon(Icons.tune_rounded),
-              label: 'تنظیمات',
-            ),
-          ],
-        ),
-      ),
+      child: Scaffold(body: _buildHomeTab()),
     );
   }
 
@@ -3615,122 +3625,286 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  void _openSettings() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: _buildSettingsTab(),
+      ),
+    ));
+  }
+
+  Widget _homeHeader() {
+    return Row(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.add_rounded),
+          tooltip: 'افزودن سرور یا اشتراک',
+          onPressed: _showAddSheet,
+        ),
+        const Expanded(
+          child: Center(
+            child: Text(
+              'SHIN',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2,
+              ),
+            ),
+          ),
+        ),
+        IconButton(
+          icon: isTestingAll
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.speed_rounded),
+          tooltip: 'تست پینگ',
+          onPressed: isTestingAll ? null : testAllPings,
+        ),
+        IconButton(
+          icon: const Icon(Icons.settings_rounded),
+          tooltip: 'تنظیمات',
+          onPressed: _openSettings,
+        ),
+      ],
+    );
+  }
+
+  String _groupMeta(SubscriptionItem? sub, int count) {
+    if (sub == null) return '$count سرور';
+    final parts = <String>[
+      '$count سرور',
+      'بروزرسانی ${fmtAgo(sub.updatedAt)}',
+    ];
+    if (sub.expireSec > 0) {
+      final days = DateTime.fromMillisecondsSinceEpoch(sub.expireSec * 1000)
+          .difference(DateTime.now())
+          .inDays;
+      parts.add(days >= 0 ? '$days روز مانده' : 'منقضی شده');
+    }
+    return parts.join('  •  ');
+  }
+
+  Widget _groupSection({
+    required String id,
+    required String title,
+    SubscriptionItem? sub,
+    required List<ServerItem> servers,
+  }) {
+    final collapsed = _collapsedGroups.contains(id);
+    final scheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              setState(() {
+                if (collapsed) {
+                  _collapsedGroups.remove(id);
+                } else {
+                  _collapsedGroups.add(id);
+                }
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(2, 6, 0, 6),
+              child: Row(
+                children: [
+                  Icon(
+                    collapsed
+                        ? Icons.chevron_left_rounded
+                        : Icons.expand_more_rounded,
+                    size: 20,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          _groupMeta(sub, servers.length),
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (sub != null) ...[
+                    sub.isUpdating
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : IconButton(
+                            icon: const Icon(Icons.refresh_rounded, size: 20),
+                            tooltip: 'بروزرسانی',
+                            onPressed: () => updateSubscription(sub),
+                          ),
+                    PopupMenuButton<String>(
+                      onSelected: (v) {
+                        if (v == 'edit') editSubscriptionDialog(sub);
+                        if (v == 'copy') {
+                          Clipboard.setData(ClipboardData(text: sub.url));
+                          showSnack('لینک اشتراک کپی شد');
+                        }
+                        if (v == 'delete') deleteSubscription(sub);
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'edit', child: Text('تنظیمات اشتراک')),
+                        PopupMenuItem(value: 'copy', child: Text('کپی لینک')),
+                        PopupMenuItem(value: 'delete', child: Text('حذف')),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (sub != null && sub.totalBytes > 0 && !collapsed) ...[
+            const SizedBox(height: 4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: (sub.usedBytes / sub.totalBytes).clamp(0.0, 1.0).toDouble(),
+                minHeight: 5,
+                color: scheme.primary,
+                backgroundColor: scheme.primary.withOpacity(0.12),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${_fmtBytes(sub.usedBytes)} / ${_fmtBytes(sub.totalBytes)}',
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+          ],
+          if (!collapsed)
+            for (final server in servers)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _serverTile(server),
+              ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHomeTab() {
-    final active = selectedServer;
     final connected = isConnected;
-    final connecting = isConnecting;
-    final accent = connected
-        ? const Color(0xFF22C55E)
-        : const Color(0xFF3B82F6);
+    final connecting = isConnecting || v2rayStatus.state == 'DISCONNECTING';
+    final accent = connected ? const Color(0xFF22C55E) : const Color(0xFF3B82F6);
     final statusTitle = connected
         ? 'متصل'
         : connecting
             ? 'در حال اتصال...'
             : 'برای اتصال بزنید';
-    final activePing = active?.pingFor(PingMode.real);
+    final active = selectedServer;
+
+    final grouped = <String, List<ServerItem>>{};
+    for (final server in servers) {
+      grouped.putIfAbsent(server.subId, () => <ServerItem>[]).add(server);
+    }
+
+    final sections = <Widget>[
+      for (final sub in subscriptions)
+        _groupSection(
+          id: sub.id,
+          title: sub.name,
+          sub: sub,
+          servers: grouped[sub.id] ?? const <ServerItem>[],
+        ),
+      if ((grouped['manual'] ?? const <ServerItem>[]).isNotEmpty)
+        _groupSection(
+          id: 'manual',
+          title: 'سرورهای دستی',
+          servers: grouped['manual']!,
+        ),
+    ];
 
     return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      child: Column(
         children: [
-          Row(
-            children: [
-              const SizedBox(width: 48),
-              const Expanded(
-                child: Center(
-                  child: Text(
-                    'SHIN',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 2,
-                    ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),
+            child: _homeHeader(),
+          ),
+          if (isTestingAll)
+            LinearProgressIndicator(
+              value: pingTestsTotal == 0 ? null : pingTestsCompleted / pingTestsTotal,
+              minHeight: 2,
+            ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
+                Center(
+                  child: _PowerButton(
+                    lowPower: lowPowerMode,
+                    connected: connected,
+                    connecting: connecting,
+                    accent: accent,
+                    onTap: toggleVpn,
                   ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.cloud_download_outlined),
-                tooltip: 'دریافت سرور از سازنده',
-                onPressed: _showRequestServerFromCreatorDialog,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: _PowerButton(
-              lowPower: lowPowerMode,
-              connected: connected,
-              connecting: connecting,
-              accent: accent,
-              onTap: toggleVpn,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: Text(
-              statusTitle,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-          ),
-          if (connected)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  v2rayStatus.duration,
-                  textDirection: TextDirection.ltr,
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                const SizedBox(height: 14),
+                Center(
+                  child: Text(
+                    statusTitle,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                  ),
                 ),
-              ),
+                if (connected)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        '${v2rayStatus.duration}${active != null ? '  •  ${active.remark}' : ''}',
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                if (connected) ...[
+                  const SizedBox(height: 14),
+                  _speedRow(),
+                ],
+                const SizedBox(height: 24),
+                if (servers.isEmpty)
+                  _emptyState(
+                    icon: Icons.dns_outlined,
+                    title: 'هنوز سروری اضافه نشده است',
+                    subtitle: 'لینک سرور یا اشتراک را اضافه کنید.',
+                    actionLabel: 'افزودن سرور',
+                    onAction: _showAddSheet,
+                  )
+                else
+                  ...sections,
+                if (ipAddress.isNotEmpty || isCheckingIp) _buildIpCard(),
+              ],
             ),
-          if (connected) ...[
-            const SizedBox(height: 14),
-            _speedRow(),
-          ],
-          const SizedBox(height: 22),
-          _homeCard(
-            icon: Icons.signal_cellular_alt_rounded,
-            iconColor: accent,
-            title: connected ? (active?.remark ?? 'متصل') : 'بدون اتصال',
-            subtitle: connected && activePing != null && activePing > 0
-                ? '$activePing ms'
-                : null,
-            onTap: () => setState(() => currentTab = 1),
           ),
-          const SizedBox(height: 10),
-          _homeCard(
-            icon: Icons.bolt_rounded,
-            iconColor: const Color(0xFFF59E0B),
-            title: 'بهترین سرور',
-            onTap: _autoSelectBestServer,
-          ),
-          const SizedBox(height: 22),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'سرورها',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              TextButton(
-                onPressed: () => setState(() => currentTab = 1),
-                child: const Text('همه'),
-              ),
-            ],
-          ),
-          if (servers.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'هنوز سروری اضافه نشده است',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
-              ),
-            )
-          else
-            for (final server in servers.take(4)) _serverRow(server),
-          const SizedBox(height: 12),
-          if (ipAddress.isNotEmpty || isCheckingIp) _buildIpCard(),
         ],
       ),
     );
@@ -3778,31 +3952,6 @@ class _MainShellState extends State<MainShell> {
               ),
             ],
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _pingPill(int? ping) {
-    final color = ping == null ? Colors.grey : pingColor(ping);
-    final text = ping == null
-        ? '—'
-        : ping <= 0
-            ? 'خطا'
-            : '$ping ms';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        text,
-        textDirection: TextDirection.ltr,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -3959,103 +4108,67 @@ class _MainShellState extends State<MainShell> {
   // آیتم سرور با فونت ۲ سایز کوچک‌تر (مورد ۴)
   Widget _serverTile(ServerItem server) {
     final isSelected = server.id == selectedServerId;
-    final protocolColor = protocolBadgeColor(server.protocol);
+    final ping = server.pingFor(PingMode.real);
+    final isGood = ping != null && ping > 0 && ping <= 250;
     final scheme = Theme.of(context).colorScheme;
-    final shortProto = server.protocol.length > 4
-        ? server.protocol.substring(0, 4)
-        : server.protocol;
+    final bg = isGood
+        ? const Color(0xFF22C55E).withOpacity(0.14)
+        : Theme.of(context).cardColor;
 
-    return Dismissible(
-      key: ValueKey(server.id),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        decoration: BoxDecoration(
-          color: Colors.redAccent,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: const Icon(Icons.delete_rounded, color: Colors.white),
-      ),
-      onDismissed: (_) => deleteServer(server),
-      child: Material(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onLongPress: () => _showServerSheet(server),
-          onTap: () async {
-            setState(() => selectedServerId = server.id);
-            await savePersistentData();
-            await reconnectIfNeeded();
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: isSelected ? scheme.primary : Colors.transparent,
-                width: 1.5,
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onLongPress: () => _showServerSheet(server),
+        onTap: () async {
+          setState(() => selectedServerId = server.id);
+          await savePersistentData();
+          await reconnectIfNeeded();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected ? scheme.primary : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      server.remark,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      server.protocol,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: protocolColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: server.countryCode.isNotEmpty
-                      ? Text(
-                          flagOf(server.countryCode),
-                          style: const TextStyle(fontSize: 22),
-                        )
-                      : Text(
-                          shortProto,
-                          style: TextStyle(
-                            color: protocolColor,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 10,
-                          ),
-                        ),
+              const SizedBox(width: 8),
+              Text(
+                ping == null ? '—' : (ping <= 0 ? 'خطا' : '$ping ms'),
+                textDirection: TextDirection.ltr,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: ping == null ? Colors.grey : (ping <= 0 ? Colors.redAccent : null),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        server.remark,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight:
-                              isSelected ? FontWeight.w800 : FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        server.subName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 6),
-                _pingPill(server.pingFor(PingMode.real)),
-                IconButton(
-                  icon: const Icon(Icons.more_vert_rounded, size: 20),
-                  onPressed: () => _showServerSheet(server),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -4466,12 +4579,6 @@ class _MainShellState extends State<MainShell> {
           ]),
           _sectionTitle('پشتیبانی'),
           _settingsCard([
-            _settingsTile(
-              icon: Icons.support_agent_rounded,
-              color: const Color(0xFF10B981),
-              title: 'درخواست سرور از سازنده',
-              onTap: _showRequestServerFromCreatorDialog,
-            ),
             _settingsTile(
               icon: Icons.system_update_rounded,
               color: Colors.blueAccent,
