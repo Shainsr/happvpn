@@ -267,7 +267,7 @@ Future<void> vpnBackgroundMain() async {
         remark: remark,
         config: config,
         proxyOnly: isProxyOnly,
-        blockedApps: bypassApps.isEmpty ? null : bypassApps.toList(),
+        blockedApps: ((prefs.getStringList('bypassApps') ?? const <String>[]).isEmpty ? null : prefs.getStringList('bypassApps')),
         bypassSubnets: null,
       );
     }
@@ -2400,7 +2400,7 @@ class _MainShellState extends State<MainShell> {
         remark: target.remark,
         config: finalConfig,
         proxyOnly: isProxyOnly,
-        blockedApps: ((prefs.getStringList('bypassApps') ?? const <String>[]).isEmpty ? null : prefs.getStringList('bypassApps')),
+        blockedApps: bypassApps.isEmpty ? null : bypassApps.toList(),
         bypassSubnets: null,
       );
       started = true;
