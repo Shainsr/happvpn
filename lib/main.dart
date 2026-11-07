@@ -990,6 +990,7 @@ class ServerItem {
   // کلید = نام حالت پینگ (PingMode.name)، مقدار = میلی‌ثانیه یا -1 در صورت خطا
   Map<String, int> pings;
   Set<String> busyPings;
+  String countryCode = '';
 
   bool get isPinging => busyPings.isNotEmpty;
 
@@ -1016,6 +1017,7 @@ class ServerItem {
         'subName': subName,
         'fullJsonConfig': fullJsonConfig,
         'pings': pings,
+        'countryCode': countryCode,
       };
 
   factory ServerItem.fromJson(JsonMap json) {
@@ -1030,7 +1032,7 @@ class ServerItem {
     if (json['realPing'] is int && !pings.containsKey('tcp')) {
       pings['tcp'] = json['realPing'] as int;
     }
-    return ServerItem(
+    final item = ServerItem(
       id: json['id'] ?? DateTime.now().microsecondsSinceEpoch.toString(),
       rawUrl: json['rawUrl'] ?? '',
       remark: json['remark'] ?? 'سرور',
@@ -1040,6 +1042,8 @@ class ServerItem {
       fullJsonConfig: json['fullJsonConfig'] ?? '',
       pings: pings,
     );
+    item.countryCode = (json['countryCode'] ?? '').toString();
+    return item;
   }
 }
 
@@ -1415,24 +1419,56 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
 
   ThemeData _buildTheme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
+    final card = isDark ? const Color(0xFF151C2C) : const Color(0xFFFFFFFF);
+    final scaffold = isDark ? const Color(0xFF0B0F19) : const Color(0xFFF3F5F9);
+    final primary = isDark ? const Color(0xFF6366F1) : const Color(0xFF2563EB);
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
       fontFamily: 'Vazirmatn',
-      scaffoldBackgroundColor:
-          isDark ? const Color(0xFF0B0F19) : const Color(0xFFF3F5F9),
-      cardColor: isDark ? const Color(0xFF151C2C) : const Color(0xFFFFFFFF),
+      scaffoldBackgroundColor: scaffold,
+      cardColor: card,
       colorScheme: isDark
-          ? const ColorScheme.dark(
-              primary: Color(0xFF6366F1),
-              secondary: Color(0xFF10B981),
-              surface: Color(0xFF151C2C),
-            )
-          : const ColorScheme.light(
-              primary: Color(0xFF2563EB),
-              secondary: Color(0xFF10B981),
-              surface: Color(0xFFFFFFFF),
-            ),
+          ? ColorScheme.dark(primary: primary, secondary: const Color(0xFF10B981), surface: card)
+          : ColorScheme.light(primary: primary, secondary: const Color(0xFF10B981), surface: card),
+      appBarTheme: AppBarTheme(
+        backgroundColor: scaffold,
+        foregroundColor: isDark ? Colors.white : const Color(0xFF0F172A),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: true,
+        titleTextStyle: TextStyle(
+          fontFamily: 'Vazirmatn',
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: isDark ? Colors.white : const Color(0xFF0F172A),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: card,
+        isDense: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: card,
+        indicatorColor: primary.withOpacity(0.18),
+        height: 66,
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        showDragHandle: true,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          visualDensity: VisualDensity.compact,
+        ),
+      ),
     );
     return base.copyWith(
       textTheme: base.textTheme.apply(fontFamily: 'Vazirmatn'),
@@ -2137,6 +2173,7 @@ class _MainShellState extends State<MainShell> {
     var result = -1;
     try {
       result = await _measureViaProxy(server);
+      if (result > 0) await _resolveServerCountry(server);
     } catch (_) {
       result = -1;
     } finally {
@@ -3071,6 +3108,7 @@ class _MainShellState extends State<MainShell> {
           children: [
             _buildHomeTab(),
             _buildServersTab(),
+            _buildStatsTab(),
             _buildSettingsTab(),
           ],
         ),
@@ -3091,6 +3129,10 @@ class _MainShellState extends State<MainShell> {
               ),
               selectedIcon: const Icon(Icons.dns_rounded),
               label: 'Servers',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.bar_chart_rounded),
+              label: 'Stats',
             ),
             const NavigationDestination(
               icon: Icon(Icons.tune_rounded),
@@ -3121,6 +3163,241 @@ class _MainShellState extends State<MainShell> {
     setState(() => selectedServerId = candidates.first.id);
     await savePersistentData();
     showSnack('بهترین سرور: ${candidates.first.remark}');
+  }
+
+  String _fmtSpeed(int bps) {
+    if (bps < 1024) return '$bps B/s';
+    if (bps < 1024 * 1024) return '${(bps / 1024).toStringAsFixed(1)} KB/s';
+    return '${(bps / (1024 * 1024)).toStringAsFixed(2)} MB/s';
+  }
+
+  String _fmtBytes(int b) {
+    if (b < 1024) return '$b B';
+    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
+    if (b < 1024 * 1024 * 1024) return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
+  Future<void> _resolveServerCountry(ServerItem server) async {
+    if (server.countryCode.isNotEmpty) return;
+    final ep = extractServerEndpoint(server.fullJsonConfig);
+    if (ep == null) return;
+    try {
+      final addr = await InternetAddress.lookup(ep.host)
+          .timeout(const Duration(seconds: 4));
+      if (addr.isEmpty) return;
+      final info = await _fetchJson('https://api.country.is/${addr.first.address}');
+      final code = (info?['country'] ?? '').toString();
+      if (code.isNotEmpty) server.countryCode = code;
+    } catch (_) {}
+  }
+
+  Widget _speedItem(IconData icon, Color color, String text) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          textDirection: TextDirection.ltr,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+
+  Widget _speedRow() {
+    final st = v2rayStatus;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _speedItem(Icons.arrow_downward_rounded,
+                const Color(0xFF22C55E), _fmtSpeed(st.downloadSpeed)),
+          ),
+          Expanded(
+            child: _speedItem(Icons.arrow_upward_rounded,
+                const Color(0xFFA855F7), _fmtSpeed(st.uploadSpeed)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String text) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Colors.grey,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+
+  Widget _settingsCard(List<Widget> children) {
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            children[i],
+            if (i < children.length - 1)
+              const Divider(height: 1, indent: 16, endIndent: 16),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _settingsSwitch({
+    required String title,
+    String? subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return SwitchListTile(
+      title: Text(title, style: const TextStyle(fontSize: 14)),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      value: value,
+      onChanged: (v) {
+        onChanged(v);
+        savePersistentData();
+      },
+    );
+  }
+
+  Widget _settingsTile({
+    required IconData icon,
+    Color? color,
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+    VoidCallback? onTap,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(title, style: TextStyle(fontSize: 14, color: color)),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      trailing: trailing ?? const Icon(Icons.chevron_right_rounded, size: 20),
+      onTap: onTap,
+    );
+  }
+
+  Widget _statTile(String label, String value, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: const Color(0xFF3B82F6)),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 2),
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatsTab() {
+    final st = v2rayStatus;
+    final pings = servers
+        .map((s) => s.pingFor(PingMode.real))
+        .whereType<int>()
+        .where((p) => p > 0)
+        .toList();
+    final best = pings.isEmpty ? null : pings.reduce((a, b) => min(a, b));
+    final avg =
+        pings.isEmpty ? null : pings.reduce((a, b) => a + b) ~/ pings.length;
+    final countries = servers
+        .map((s) => s.countryCode)
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .length;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Stats')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        children: [
+          _statTile('Session time', st.duration, Icons.timer_outlined),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _statTile('Downloaded', _fmtBytes(st.download),
+                    Icons.arrow_downward_rounded),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _statTile(
+                    'Uploaded', _fmtBytes(st.upload), Icons.arrow_upward_rounded),
+              ),
+            ],
+          ),
+          _sectionTitle('SERVERS'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.dns_outlined,
+              title: 'Total servers',
+              trailing: Text('${servers.length}'),
+            ),
+            _settingsTile(
+              icon: Icons.public_rounded,
+              title: 'Countries',
+              trailing: Text('$countries'),
+            ),
+            _settingsTile(
+              icon: Icons.speed_rounded,
+              title: 'Tested servers',
+              trailing: Text('${pings.length}'),
+            ),
+            _settingsTile(
+              icon: Icons.bolt_rounded,
+              title: 'Best ping',
+              trailing: Text(best == null ? '—' : '$best ms',
+                  textDirection: TextDirection.ltr),
+            ),
+            _settingsTile(
+              icon: Icons.show_chart_rounded,
+              title: 'Average ping',
+              trailing: Text(avg == null ? '—' : '$avg ms',
+                  textDirection: TextDirection.ltr),
+            ),
+          ]),
+        ],
+      ),
+    );
   }
 
   Widget _homeCard({
@@ -3270,6 +3547,10 @@ class _MainShellState extends State<MainShell> {
                 ),
               ),
             ),
+          if (connected) ...[
+            const SizedBox(height: 14),
+            _speedRow(),
+          ],
           const SizedBox(height: 22),
           _homeCard(
             icon: Icons.signal_cellular_alt_rounded,
@@ -3557,14 +3838,19 @@ class _MainShellState extends State<MainShell> {
                     color: protocolColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Text(
-                    shortProto,
-                    style: TextStyle(
-                      color: protocolColor,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 10,
-                    ),
-                  ),
+                  child: server.countryCode.isNotEmpty
+                      ? Text(
+                          flagOf(server.countryCode),
+                          style: const TextStyle(fontSize: 22),
+                        )
+                      : Text(
+                          shortProto,
+                          style: TextStyle(
+                            color: protocolColor,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 10,
+                          ),
+                        ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -3872,153 +4158,171 @@ class _MainShellState extends State<MainShell> {
 
   Widget _buildSettingsTab() {
     return Scaffold(
-      appBar: AppBar(title: const Text('تنظیمات هسته و ظاهر SHIN')),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
-          const Text(
-            'پوسته‌ها و تم گرافیکی 🎨',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-          ),
-          const SizedBox(height: 8),
+          _sectionTitle('APPEARANCE'),
           SegmentedButton<AppThemeModeSetting>(
             segments: const [
               ButtonSegment(
                 value: AppThemeModeSetting.system,
-                label: Text('سیستم'),
+                label: Text('System'),
                 icon: Icon(Icons.brightness_auto_rounded),
               ),
               ButtonSegment(
                 value: AppThemeModeSetting.dark,
-                label: Text('دارک'),
+                label: Text('Dark'),
                 icon: Icon(Icons.dark_mode_rounded),
               ),
               ButtonSegment(
                 value: AppThemeModeSetting.light,
-                label: Text('روشن'),
+                label: Text('Light'),
                 icon: Icon(Icons.light_mode_rounded),
               ),
             ],
             selected: {widget.currentTheme},
             onSelectionChanged: (val) => widget.onThemeChanged(val.first),
           ),
-          const SizedBox(height: 22),
-          const Text(
-            'مسیردهی هوشمند و هسته Xray ⚙️',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-          ),
-          const SizedBox(height: 6),
-          SwitchListTile(
-            title: const Text('بای‌پاس ترافیک و بانک‌های ایران 🇮🇷'),
-            subtitle: const Text(
-                'دامنه‌های .ir و آی‌پی‌های داخل کشور مستقیم باز می‌شوند'),
-            value: bypassIran,
-            onChanged: (val) {
-              setState(() => bypassIran = val);
-              savePersistentData();
-            },
-          ),
-          SwitchListTile(
-            title: const Text('بای‌پاس شبکه محلی (LAN)'),
-            value: bypassLan,
-            onChanged: (val) {
-              setState(() => bypassLan = val);
-              savePersistentData();
-            },
-          ),
-          SwitchListTile(
-            title: const Text('تجمیع اتصال (Mux)'),
-            subtitle: const Text('برای سرورهای Reality و XHTTP خاموش باشد'),
-            value: enableMux,
-            onChanged: (val) {
-              setState(() => enableMux = val);
-              savePersistentData();
-            },
-          ),
-          SwitchListTile(
-            title: const Text('اجازه به گواهی‌های TLS نامعتبر (Allow Insecure)'),
-            value: allowInsecureDefault,
-            onChanged: (val) {
-              setState(() => allowInsecureDefault = val);
-              savePersistentData();
-            },
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'سرور DNS ترجیحی',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final d in kDnsOptions)
-                ChoiceChip(
-                  label: Text(d),
-                  selected: selectedDns == d,
-                  onSelected: (_) {
-                    setState(() => selectedDns = d);
-                    savePersistentData();
-                  },
-                ),
-            ],
-          ),
-          const SizedBox(height: 22),
-          const Text(
-            'پشتیبانی، بروزرسانی و اطلاعات هسته 🔄',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-          ),
-          const SizedBox(height: 6),
-          ListTile(
-            leading: const Icon(Icons.support_agent_rounded,
-                color: Color(0xFF10B981)),
-            title: const Text('دریافت سرور از سازنده'),
-            subtitle: const Text('ارسال درخواست مستقیم به سازنده SHIN'),
-            trailing: const Icon(Icons.send_rounded),
-            onTap: _showRequestServerFromCreatorDialog,
-          ),
-          ListTile(
-            leading: const Icon(Icons.system_update_rounded,
-                color: Colors.blueAccent),
-            title: const Text('بررسی بروزرسانی برنامه'),
-            subtitle: const Text('نسخه فعلی: $kAppVersion • دریافت آخرین APK'),
-            trailing: isCheckingUpdate
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.chevron_left_rounded),
-            onTap: checkForAppUpdate,
-          ),
-          ListTile(
-            leading:
-                const Icon(Icons.memory_rounded, color: Colors.greenAccent),
-            title: const Text('بررسی بروزرسانی هسته Xray'),
-            subtitle: Text(coreVersion, textDirection: TextDirection.ltr),
-            trailing: const Icon(Icons.sync_rounded),
-            onTap: checkForXrayCoreUpdate,
-          ),
-          ListTile(
-            leading: const Icon(Icons.fingerprint_rounded),
-            title: const Text('شناسه سخت‌افزاری دستگاه (x-hwid)'),
-            subtitle: Text(hwid, textDirection: TextDirection.ltr),
-            trailing: IconButton(
-              icon: const Icon(Icons.copy_rounded),
-              onPressed: () {
+          _sectionTitle('ROUTING'),
+          _settingsCard([
+            _settingsSwitch(
+              title: 'Bypass Iran',
+              subtitle: '.ir domains and Iranian IPs connect directly',
+              value: bypassIran,
+              onChanged: (v) => setState(() => bypassIran = v),
+            ),
+            _settingsSwitch(
+              title: 'Bypass local network',
+              subtitle: 'LAN traffic connects directly',
+              value: bypassLan,
+              onChanged: (v) => setState(() => bypassLan = v),
+            ),
+          ]),
+          _sectionTitle('ADVANCED'),
+          _settingsCard([
+            _settingsSwitch(
+              title: 'Mux',
+              subtitle: 'Keep off for Reality and XHTTP servers',
+              value: enableMux,
+              onChanged: (v) => setState(() => enableMux = v),
+            ),
+            _settingsSwitch(
+              title: 'Allow insecure TLS',
+              subtitle: 'Accept invalid certificates',
+              value: allowInsecureDefault,
+              onChanged: (v) => setState(() => allowInsecureDefault = v),
+            ),
+            _settingsSwitch(
+              title: 'Apply routing to ping',
+              subtitle: 'Use bypass rules during real ping',
+              value: pingBypassRouting,
+              onChanged: (v) => setState(() => pingBypassRouting = v),
+            ),
+            _settingsSwitch(
+              title: 'Best of two pings',
+              subtitle: 'Send two requests and keep the faster',
+              value: pingBestOfTwo,
+              onChanged: (v) => setState(() => pingBestOfTwo = v),
+            ),
+            ListTile(
+              title: const Text('Ping timeout', style: TextStyle(fontSize: 14)),
+              trailing: SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 5, label: Text('5s')),
+                  ButtonSegment(value: 15, label: Text('15s')),
+                ],
+                selected: {pingProxyTimeoutSec},
+                onSelectionChanged: (v) {
+                  setState(() => pingProxyTimeoutSec = v.first);
+                  savePersistentData();
+                },
+              ),
+            ),
+            _settingsTile(
+              icon: Icons.link_rounded,
+              title: 'Ping test URL',
+              subtitle: pingTestUrl,
+              trailing: const Icon(Icons.edit_rounded, size: 18),
+              onTap: _editPingUrl,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Preferred DNS',
+                      style: TextStyle(fontSize: 14)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final d in kDnsOptions)
+                        ChoiceChip(
+                          label: Text(d),
+                          selected: selectedDns == d,
+                          onSelected: (_) {
+                            setState(() => selectedDns = d);
+                            savePersistentData();
+                          },
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ]),
+          _sectionTitle('SUPPORT'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.support_agent_rounded,
+              color: const Color(0xFF10B981),
+              title: 'Request a server from the creator',
+              onTap: _showRequestServerFromCreatorDialog,
+            ),
+            _settingsTile(
+              icon: Icons.system_update_rounded,
+              color: Colors.blueAccent,
+              title: 'Check for app update',
+              subtitle: 'Current version $kAppVersion',
+              trailing: isCheckingUpdate
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : null,
+              onTap: checkForAppUpdate,
+            ),
+            _settingsTile(
+              icon: Icons.memory_rounded,
+              color: Colors.greenAccent,
+              title: 'Xray core',
+              subtitle: coreVersion,
+              trailing: const Icon(Icons.sync_rounded, size: 20),
+              onTap: checkForXrayCoreUpdate,
+            ),
+            _settingsTile(
+              icon: Icons.fingerprint_rounded,
+              title: 'Device ID',
+              subtitle: hwid,
+              trailing: const Icon(Icons.copy_rounded, size: 18),
+              onTap: () {
                 Clipboard.setData(ClipboardData(text: hwid));
                 showSnack('شناسه HWID کپی شد');
               },
             ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete_sweep_rounded, color: Colors.red),
-            title: const Text(
-              'پاکسازی کامل سرورها و اشتراک‌ها',
-              style: TextStyle(color: Colors.red),
+          ]),
+          _sectionTitle('DANGER ZONE'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.delete_sweep_rounded,
+              color: Colors.redAccent,
+              title: 'Delete all servers and subscriptions',
+              onTap: _confirmClearAll,
             ),
-            onTap: _confirmClearAll,
-          ),
+          ]),
         ],
       ),
     );
