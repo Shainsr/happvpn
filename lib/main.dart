@@ -22,7 +22,24 @@ const MethodChannel kQuickControlsChannel =
 const String kCreatorWebhookUrl = '';
 const String kCreatorDefaultSubUrl = '';
 
-enum PingMode { real, tcp }
+enum PingMode { httpGet, httpHead, tcp, icmp }
+
+extension PingModeLabel on PingMode {
+  String get label {
+    switch (this) {
+      case PingMode.httpGet:
+        return 'GET';
+      case PingMode.httpHead:
+        return 'HEAD';
+      case PingMode.tcp:
+        return 'TCP';
+      case PingMode.icmp:
+        return 'ICMP';
+    }
+  }
+}
+
+const String kDefaultPingUrl = 'https://www.gstatic.com/generate_204';
 
 class ServerEndpoint {
   final String host;
@@ -977,12 +994,13 @@ class ServerItem {
   String subId;
   String subName;
   String fullJsonConfig;
-  int? realPing;
-  int? tcpPing;
-  bool isPingingReal;
-  bool isPingingTcp;
+  // کلید = نام حالت پینگ (PingMode.name)، مقدار = میلی‌ثانیه یا -1 در صورت خطا
+  Map<String, int> pings;
+  Set<String> busyPings;
 
-  bool get isPinging => isPingingReal || isPingingTcp;
+  bool get isPinging => busyPings.isNotEmpty;
+
+  int? pingFor(PingMode mode) => pings[mode.name];
 
   ServerItem({
     required this.id,
@@ -992,11 +1010,9 @@ class ServerItem {
     required this.subId,
     required this.subName,
     required this.fullJsonConfig,
-    this.realPing,
-    this.tcpPing,
-    this.isPingingReal = false,
-    this.isPingingTcp = false,
-  });
+    Map<String, int>? pings,
+  })  : pings = pings ?? <String, int>{},
+        busyPings = <String>{};
 
   JsonMap toJson() => {
         'id': id,
@@ -1006,21 +1022,32 @@ class ServerItem {
         'subId': subId,
         'subName': subName,
         'fullJsonConfig': fullJsonConfig,
-        'realPing': realPing,
-        'tcpPing': tcpPing,
+        'pings': pings,
       };
 
-  factory ServerItem.fromJson(JsonMap json) => ServerItem(
-        id: json['id'] ?? DateTime.now().microsecondsSinceEpoch.toString(),
-        rawUrl: json['rawUrl'] ?? '',
-        remark: json['remark'] ?? 'سرور',
-        protocol: json['protocol'] ?? 'V2RAY',
-        subId: json['subId'] ?? 'manual',
-        subName: json['subName'] ?? 'دستی',
-        fullJsonConfig: json['fullJsonConfig'] ?? '',
-        realPing: json['realPing'] is int ? json['realPing'] as int : null,
-        tcpPing: json['tcpPing'] is int ? json['tcpPing'] as int : null,
-      );
+  factory ServerItem.fromJson(JsonMap json) {
+    final pings = <String, int>{};
+    final raw = json['pings'];
+    if (raw is Map) {
+      raw.forEach((k, v) {
+        if (v is int) pings[k.toString()] = v;
+      });
+    }
+    // سازگاری با نسخه‌های قبلی: realPing همان میانهٔ TCP بود
+    if (json['realPing'] is int && !pings.containsKey('tcp')) {
+      pings['tcp'] = json['realPing'] as int;
+    }
+    return ServerItem(
+      id: json['id'] ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      rawUrl: json['rawUrl'] ?? '',
+      remark: json['remark'] ?? 'سرور',
+      protocol: json['protocol'] ?? 'V2RAY',
+      subId: json['subId'] ?? 'manual',
+      subName: json['subName'] ?? 'دستی',
+      fullJsonConfig: json['fullJsonConfig'] ?? '',
+      pings: pings,
+    );
+  }
 }
 
 class SubscriptionItem {
@@ -1490,7 +1517,11 @@ class _MainShellState extends State<MainShell> {
   String selectedGroupFilter = 'ALL';
   String searchQuery = '';
   bool sortByPing = false;
-  PingMode selectedPingMode = PingMode.real;
+  PingMode selectedPingMode = PingMode.tcp;
+  int pingProxyTimeoutSec = 5;
+  bool pingBestOfTwo = true;
+  bool pingBypassRouting = false;
+  String pingTestUrl = kDefaultPingUrl;
   bool isTestingAll = false;
   int pingTestsCompleted = 0;
   int pingTestsTotal = 0;
@@ -1761,6 +1792,10 @@ class _MainShellState extends State<MainShell> {
       await prefs.setBool('sortByPing', sortByPing);
       await prefs.setString('hwid', hwid);
       await prefs.setString('updateRepoUrl', updateRepoUrl);
+      await prefs.setInt('pingProxyTimeoutSec', pingProxyTimeoutSec);
+      await prefs.setBool('pingBestOfTwo', pingBestOfTwo);
+      await prefs.setBool('pingBypassRouting', pingBypassRouting);
+      await prefs.setString('pingTestUrl', pingTestUrl);
 
       final active = selectedServer;
       if (active != null) {
@@ -1825,9 +1860,13 @@ class _MainShellState extends State<MainShell> {
         updateRepoUrl = prefs.getString('updateRepoUrl') ?? updateRepoUrl;
         selectedPingMode = PingMode.values.firstWhere(
           (mode) => mode.name == prefs.getString('pingMode'),
-          orElse: () => PingMode.real,
+          orElse: () => PingMode.tcp,
         );
         sortByPing = prefs.getBool('sortByPing') ?? false;
+        pingProxyTimeoutSec = prefs.getInt('pingProxyTimeoutSec') ?? 5;
+        pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? true;
+        pingBypassRouting = prefs.getBool('pingBypassRouting') ?? false;
+        pingTestUrl = prefs.getString('pingTestUrl') ?? kDefaultPingUrl;
         servers = loadedServers;
         subscriptions = loadedSubs;
         if (selectedServerId.isEmpty && servers.isNotEmpty) {
@@ -2009,33 +2048,8 @@ class _MainShellState extends State<MainShell> {
 
   // ------------------------------------------------------------------ سیستم پینگ
 
-  Future<int> _measureTcpPing(ServerItem server) async {
-    final endpoint = extractServerEndpoint(server.fullJsonConfig);
-    if (endpoint == null) return -1;
-
-    try {
-      final addresses = await InternetAddress.lookup(endpoint.host)
-          .timeout(const Duration(seconds: 3));
-      if (addresses.isEmpty) return -1;
-      final targetIp = addresses.first;
-
-      final stopwatch = Stopwatch()..start();
-      final socket = await Socket.connect(
-        targetIp,
-        endpoint.port,
-        timeout: const Duration(seconds: 3),
-      );
-      stopwatch.stop();
-      socket.destroy();
-      return stopwatch.elapsedMilliseconds;
-    } catch (_) {
-      return -1;
-    }
-  }
-
-  Future<int> _measureFastRealPing(ServerItem server) async {
-    // RTT واقعی TCP: زمان handshake اتصال به endpoint سرور.
-    // DNS خارج از زمان‌سنجی است و برای کاهش نوسان، میانهٔ ۳ نمونه ثبت می‌شود.
+  // TCP: میانهٔ ۳ handshake واقعی TCP به IP/Port سرور (بدون DNS)
+  Future<int> _measureTcp(ServerItem server) async {
     final endpoint = extractServerEndpoint(server.fullJsonConfig);
     if (endpoint == null) return -1;
 
@@ -2057,7 +2071,7 @@ class _MainShellState extends State<MainShell> {
           stopwatch.stop();
           samples.add(stopwatch.elapsedMilliseconds);
         } catch (_) {
-          // یک نمونه ناموفق، دو نمونهٔ دیگر را بی‌اعتبار نمی‌کند.
+          // یک نمونهٔ ناموفق، بقیه را بی‌اعتبار نمی‌کند.
         } finally {
           socket?.destroy();
         }
@@ -2073,43 +2087,90 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  // ICMP: پینگ واقعی شبکه با دستور ping سیستم (۳ بسته، میانه)
+  Future<int> _measureIcmp(ServerItem server) async {
+    final endpoint = extractServerEndpoint(server.fullJsonConfig);
+    if (endpoint == null) return -1;
+
+    try {
+      final addresses = await InternetAddress.lookup(endpoint.host)
+          .timeout(const Duration(seconds: 4));
+      if (addresses.isEmpty) return -1;
+
+      final result = await Process.run(
+        'ping',
+        ['-c', '3', '-W', '2', addresses.first.address],
+      ).timeout(const Duration(seconds: 12));
+
+      final samples = RegExp(r'time[=<]([\d.]+)')
+          .allMatches(result.stdout.toString())
+          .map((m) => double.parse(m.group(1)!).round())
+          .toList()
+        ..sort();
+      if (samples.isEmpty) return -1;
+      return samples[samples.length ~/ 2];
+    } catch (_) {
+      return -1;
+    }
+  }
+
+  // Via Proxy: درخواست HTTP به آدرس تست، از داخل تونل/پروکسی سرور انجام می‌شود.
+  // اگر «دو درخواست» فعال باشد، بهترین نتیجه از دو اجرا انتخاب می‌شود.
+  Future<int> _measureViaProxy(ServerItem server) async {
+    final raw = server.fullJsonConfig;
+    final cfg = pingBypassRouting
+        ? buildCustomizedConfig(raw)
+        : buildLightweightPingConfig(raw);
+    final timeout = Duration(seconds: pingProxyTimeoutSec);
+    final attempts = pingBestOfTwo ? 2 : 1;
+
+    final samples = <int>[];
+    for (var i = 0; i < attempts; i++) {
+      try {
+        final ms = await flutterV2ray
+            .getServerDelay(config: cfg, url: pingTestUrl)
+            .timeout(timeout);
+        if (ms > 0) samples.add(ms);
+      } catch (_) {
+        // این تلاش ناموفق بود؛ تلاش بعدی یا نتیجهٔ خطا
+      }
+    }
+    if (samples.isEmpty) return -1;
+    samples.sort();
+    return samples.first;
+  }
+
   Future<void> pingSingleServer(
     ServerItem server, {
     PingMode? mode,
     bool save = true,
   }) async {
     final testMode = mode ?? selectedPingMode;
-    if (!mounted || server.isPinging) return;
+    final key = testMode.name;
+    if (!mounted || server.busyPings.contains(key)) return;
 
-    setState(() {
-      if (testMode == PingMode.tcp) {
-        server.isPingingTcp = true;
-      } else {
-        server.isPingingReal = true;
-      }
-    });
+    setState(() => server.busyPings.add(key));
 
     var result = -1;
     try {
-      if (testMode == PingMode.real) {
-        result = await _measureFastRealPing(server);
-      } else {
-        result = await _measureTcpPing(server);
+      switch (testMode) {
+        case PingMode.tcp:
+          result = await _measureTcp(server);
+          break;
+        case PingMode.icmp:
+          result = await _measureIcmp(server);
+          break;
+        case PingMode.httpGet:
+        case PingMode.httpHead:
+          result = await _measureViaProxy(server);
+          break;
       }
     } catch (_) {
       result = -1;
     } finally {
-      if (mounted) {
-        setState(() {
-          if (testMode == PingMode.tcp) {
-            server.tcpPing = result;
-            server.isPingingTcp = false;
-          } else {
-            server.realPing = result;
-            server.isPingingReal = false;
-          }
-        });
-      }
+      server.busyPings.remove(key);
+      server.pings[key] = result;
+      if (mounted) setState(() {});
       if (save) await savePersistentData();
     }
   }
@@ -2126,7 +2187,10 @@ class _MainShellState extends State<MainShell> {
     });
 
     try {
-      const int batchSize = 4;
+      // حالت‌های via proxy منابع هسته را اشغال می‌کنند، پس یکی‌یکی اجرا می‌شوند
+      final isProxyMode =
+          mode == PingMode.httpGet || mode == PingMode.httpHead;
+      final int batchSize = isProxyMode ? 1 : 4;
       for (var i = 0; i < list.length; i += batchSize) {
         if (!mounted) break;
         final end = min(i + batchSize, list.length);
@@ -2883,7 +2947,7 @@ class _MainShellState extends State<MainShell> {
 
     if (sortByPing) {
       int? value(ServerItem server) =>
-          selectedPingMode == PingMode.tcp ? server.tcpPing : server.realPing;
+          server.pingFor(selectedPingMode);
 
       int rank(ServerItem server) {
         final ping = value(server);
@@ -3445,10 +3509,8 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _pingChip(ServerItem server, PingMode mode) {
-    final isTcp = mode == PingMode.tcp;
-    final ping = isTcp ? server.tcpPing : server.realPing;
-    final isBusy = isTcp ? server.isPingingTcp : server.isPingingReal;
-    final label = isTcp ? 'TCP' : 'RTT';
+    final ping = server.pingFor(mode);
+    final isBusy = server.busyPings.contains(mode.name);
     final value = isBusy
         ? null
         : ping == null
@@ -3472,7 +3534,7 @@ class _MainShellState extends State<MainShell> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              label,
+              mode.label,
               style: TextStyle(
                 color: color,
                 fontSize: 8.5,
@@ -3505,15 +3567,13 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  // کارت سرور فقط نتیجهٔ حالت انتخاب‌شده را نشان می‌دهد
   Widget _pingSummary(ServerItem server) {
     return Wrap(
       spacing: 4,
       runSpacing: 4,
       alignment: WrapAlignment.end,
-      children: [
-        _pingChip(server, PingMode.real),
-        _pingChip(server, PingMode.tcp),
-      ],
+      children: [_pingChip(server, selectedPingMode)],
     );
   }
 
@@ -3566,18 +3626,12 @@ class _MainShellState extends State<MainShell> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
             child: SegmentedButton<PingMode>(
-              segments: const [
-                ButtonSegment(
-                  value: PingMode.real,
-                  label: Text('RTT واقعی (TCP)',
-                      style: TextStyle(fontSize: 11)),
-                  icon: Icon(Icons.bolt_rounded, size: 15),
-                ),
-                ButtonSegment(
-                  value: PingMode.tcp,
-                  label: Text('TCP تک‌نمونه', style: TextStyle(fontSize: 11)),
-                  icon: Icon(Icons.compare_arrows_rounded, size: 15),
-                ),
+              segments: [
+                for (final m in PingMode.values)
+                  ButtonSegment(
+                    value: m,
+                    label: Text(m.label, style: const TextStyle(fontSize: 11)),
+                  ),
               ],
               selected: {selectedPingMode},
               onSelectionChanged: isTestingAll
@@ -3593,7 +3647,7 @@ class _MainShellState extends State<MainShell> {
             child: Align(
               alignment: Alignment.centerRight,
               child: Text(
-                'RTT: میانهٔ ۳ اتصال TCP به سرور؛ بدون زمان DNS',
+                'GET/HEAD: درخواست از داخل تونل • TCP: میانهٔ ۳ اتصال • ICMP: پینگ شبکه',
                 style: TextStyle(fontSize: 9, color: Colors.grey),
               ),
             ),
@@ -3987,6 +4041,38 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  void _editPingUrl() {
+    final controller = TextEditingController(text: pingTestUrl);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('آدرس تست پینگ'),
+        content: TextField(
+          controller: controller,
+          textDirection: TextDirection.ltr,
+          decoration: const InputDecoration(hintText: 'https://...'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('انصراف'),
+          ),
+          TextButton(
+            onPressed: () {
+              final v = controller.text.trim();
+              if (v.startsWith('https://') || v.startsWith('http://')) {
+                setState(() => pingTestUrl = v);
+                savePersistentData();
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSettingsTab() {
     return Scaffold(
       appBar: AppBar(title: const Text('تنظیمات هسته و ظاهر SHIN')),
@@ -4072,6 +4158,58 @@ class _MainShellState extends State<MainShell> {
               setState(() => isProxyOnly = val);
               savePersistentData();
             },
+          ),
+          const SizedBox(height: 22),
+          const Text(
+            'تنظیمات پینگ 📶',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+          ),
+          const SizedBox(height: 6),
+          const Text('مهلت پینگ via Proxy', style: TextStyle(fontSize: 13)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final sec in const [5, 15])
+                ChoiceChip(
+                  label: Text('$sec sec'),
+                  selected: pingProxyTimeoutSec == sec,
+                  onSelected: (_) {
+                    setState(() => pingProxyTimeoutSec = sec);
+                    savePersistentData();
+                  },
+                ),
+            ],
+          ),
+          SwitchListTile(
+            title: const Text('دو درخواست و انتخاب بهترین نتیجه'),
+            subtitle: const Text('فقط برای حالت‌های via Proxy'),
+            value: pingBestOfTwo,
+            onChanged: (val) {
+              setState(() => pingBestOfTwo = val);
+              savePersistentData();
+            },
+          ),
+          SwitchListTile(
+            title: const Text('بای‌پاس در پینگ پراکسی'),
+            subtitle:
+                const Text('قوانین بای‌پاس ایران و LAN هنگام پینگ اعمال شود'),
+            value: pingBypassRouting,
+            onChanged: (val) {
+              setState(() => pingBypassRouting = val);
+              savePersistentData();
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('آدرس تست پینگ'),
+            subtitle: Text(
+              pingTestUrl,
+              textDirection: TextDirection.ltr,
+              style: const TextStyle(fontSize: 11),
+            ),
+            trailing: const Icon(Icons.edit_rounded),
+            onTap: _editPingUrl,
           ),
           const SizedBox(height: 12),
           const Text(
