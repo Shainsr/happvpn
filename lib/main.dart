@@ -169,6 +169,41 @@ void shinUpdateDispatcher() {
 }
 
 
+/// برنامه‌های شناخته‌شدهٔ ایرانی (به‌علاوه‌ی هر پکیجی که با ir. شروع شود)
+const Set<String> kIranianPackages = {
+  // از روی اسکرین‌شات‌های لیست برنامه‌ها و لینک‌های رسمی تأییدشده
+  'ir.nasim', // بله
+  'ir.divar', // دیوار
+  'com.bama.consumer', // باما
+  'com.farsitel.bazaar', // کافه‌بازار
+  'com.bazambazi', // بازم‌بازی
+  'com.samanpr.blu', // blu
+  'daal.co', // دال
+  'com.bmelat.mobile', // دیما
+  'com.aparat', // آپارات
+  'cab.snapp.passenger.play', // اسنپ (از لینک رسمی Google Play)
+};
+
+/// برنامه‌های بانکی ایرانی بر اساس نام نمایشی (چون نام پکیج بیشتر بانک‌ها تأیید نشد)
+const List<String> kIranianBankWords = [
+  'بانک', 'بام', 'سکه', 'ویپاد', 'وپاد', 'فراز', 'همراه بانک', 'ملی', 'ملت',
+  'سپه', 'صادرات', 'تجارت', 'پاسارگاد', 'ایران زمین', 'دی جت', 'بلو',
+  'همراه کارت', 'آپ', 'قبضینو', 'بانکینو', 'پاسارگاد', 'شهر', 'کشاورزی',
+  'مسکن', 'توسعه', 'رفاه', 'اقتصاد نوین', 'پست بانک', 'سامان', 'سینا',
+  'آینده', 'کارآفرین', 'گردشگری', 'خاورمیانه', 'دی', 'ایران',
+  'bank', 'Bank',
+];
+
+bool isIranianBankLabel(String name) {
+  final n = name.toLowerCase();
+  return kIranianBankWords.any((w) => n.contains(w.toLowerCase()));
+}
+
+bool isIranianPackage(String pkg) {
+  final p = pkg.toLowerCase();
+  return p.startsWith('ir.') || p.startsWith('cab.snapp.') || kIranianPackages.contains(p);
+}
+
 const Map<String, String> kCountryNames = {
   'DE': 'آلمان', 'US': 'آمریکا', 'GB': 'انگلیس', 'FI': 'فنلاند',
   'NL': 'هلند', 'TR': 'ترکیه', 'FR': 'فرانسه', 'CA': 'کانادا',
@@ -1744,6 +1779,7 @@ class _MainShellState extends State<MainShell> {
   bool autoPingOnOpen = true;
   List<Map<String, String>> _installedApps = [];
   bool _appsLoading = false;
+  bool iranianAutoDone = false;
   String _appsQuery = '';
   bool enableIPv6 = false;
   final Set<String> _collapsedGroups = <String>{};
@@ -2043,6 +2079,7 @@ class _MainShellState extends State<MainShell> {
       await prefs.setBool('enableIPv6', enableIPv6);
       await prefs.setStringList('bypassApps', bypassApps.toList());
       await prefs.setBool('autoPingOnOpen', autoPingOnOpen);
+      await prefs.setBool('iranianAutoDone', iranianAutoDone);
       await prefs.setString('pingTestUrl', pingTestUrl);
       await prefs.setStringList('countryGroups', _countryGroups.toList());
 
@@ -2120,6 +2157,7 @@ class _MainShellState extends State<MainShell> {
           ..clear()
           ..addAll(prefs.getStringList('bypassApps') ?? const <String>[]);
         autoPingOnOpen = prefs.getBool('autoPingOnOpen') ?? true;
+        iranianAutoDone = prefs.getBool('iranianAutoDone') ?? false;
         pingTestUrl = prefs.getString('pingTestUrl') ?? kDefaultPingUrl;
         _countryGroups
           ..clear()
@@ -4256,6 +4294,23 @@ class _MainShellState extends State<MainShell> {
     SubscriptionItem? sub,
     required List<ServerItem> servers,
   }) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: _groupSectionBody(
+        id: id,
+        title: title,
+        sub: sub,
+        servers: servers,
+      ),
+    );
+  }
+
+  Widget _groupSectionBody({
+    required String id,
+    required String title,
+    SubscriptionItem? sub,
+    required List<ServerItem> servers,
+  }) {
     final collapsed = _collapsedGroups.contains(id);
     final sorted = _sortedGroups.contains(id);
     final byCountry = _countryGroups.contains(id);
@@ -4939,6 +4994,13 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _serverTile(ServerItem server) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: _serverTileBody(server),
+    );
+  }
+
+  Widget _serverTileBody(ServerItem server) {
     final isSelected = server.id == selectedServerId;
     final ping = server.pingFor(PingMode.real);
     final tone = _pingTone(ping);
@@ -4955,7 +5017,7 @@ class _MainShellState extends State<MainShell> {
           await reconnectIfNeeded();
         },
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+          padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
           child: Row(
             children: [
               Expanded(
@@ -5294,6 +5356,23 @@ class _MainShellState extends State<MainShell> {
     ));
   }
 
+  void _autoPickIranianApps({bool force = false}) {
+    if (iranianAutoDone && !force) return;
+    var added = 0;
+    for (final app in _installedApps) {
+      final pkg = app['package']!;
+      final matched = isIranianPackage(pkg) || isIranianBankLabel(app['name']!);
+      if (matched && bypassApps.add(pkg)) added++;
+    }
+    iranianAutoDone = true;
+    savePersistentData();
+    if (mounted) {
+      showSnack(added > 0
+          ? '$added برنامهٔ ایرانی به‌صورت خودکار خارج از VPN قرار گرفت'
+          : 'برنامهٔ ایرانی جدیدی پیدا نشد');
+    }
+  }
+
   Future<void> _loadInstalledApps() async {
     try {
       final raw = await kQuickControlsChannel
@@ -5308,6 +5387,7 @@ class _MainShellState extends State<MainShell> {
       }
       apps.sort((a, b) => a['name']!.toLowerCase().compareTo(b['name']!.toLowerCase()));
       _installedApps = apps;
+      _autoPickIranianApps();
     } catch (_) {
       showSnack('فهرست برنامه‌ها گرفته نشد');
     }
@@ -5334,7 +5414,18 @@ class _MainShellState extends State<MainShell> {
               .toList();
 
           return Scaffold(
-            appBar: AppBar(title: const Text('برنامه‌های خارج از VPN')),
+            appBar: AppBar(
+              title: const Text('برنامه‌های خارج از VPN'),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    _autoPickIranianApps(force: true);
+                    setLocal(() {});
+                  },
+                  child: const Text('ایرانی‌ها'),
+                ),
+              ],
+            ),
             body: Column(
               children: [
                 Padding(
