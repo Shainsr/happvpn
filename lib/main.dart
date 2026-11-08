@@ -316,6 +316,7 @@ const List<String> kDnsOptions = [
   '8.8.8.8',
   '9.9.9.9',
   '94.140.14.14',
+  '208.67.222.222',
 ];
 
 const List<String> kSupportedSchemes = [
@@ -1409,17 +1410,17 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
 
   ThemeData _buildTheme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF0E1015) : const Color(0xFFEDEDEF);
-    final card = isDark ? const Color(0xFF181B22) : const Color(0xFFFFFFFF);
+    final bg = isDark ? const Color(0xFF0E1015) : const Color(0xFFF3F4F6);
+    final card = isDark ? const Color(0xFF161A22) : const Color(0xFFFFFFFF);
     final text = isDark ? const Color(0xFFF2F4F8) : const Color(0xFF14171F);
-    const accent = Color(0xFF4F7CFF);
+    const accent = Color(0xFF3B82F6);
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
       fontFamily: 'Vazirmatn',
       scaffoldBackgroundColor: bg,
       cardColor: card,
-      dividerColor: isDark ? const Color(0xFF232732) : const Color(0xFFE6E8EE),
+      dividerColor: isDark ? const Color(0xFF242A36) : const Color(0xFFE5E7EB),
       colorScheme: isDark
           ? ColorScheme.dark(primary: accent, secondary: accent, surface: card)
           : ColorScheme.light(primary: accent, secondary: accent, surface: card),
@@ -1441,7 +1442,7 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
         fillColor: card,
         isDense: true,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide.none,
         ),
       ),
@@ -1453,12 +1454,6 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
       ),
       segmentedButtonTheme: const SegmentedButtonThemeData(
         style: ButtonStyle(visualDensity: VisualDensity.compact),
-      ),
-      pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-        },
       ),
     );
     return base.copyWith(
@@ -1536,7 +1531,8 @@ class _MainShellState extends State<MainShell> {
   bool iranianAutoDone = false;
   String _appsQuery = '';
   bool enableIPv6 = false;
-  bool blockQuic = false;
+  int mtuSize = 1500;
+  bool keepCpuAlive = true;
   final Set<String> _collapsedGroups = <String>{};
   bool bypassLan = true;
   bool bypassIran = true;
@@ -1670,7 +1666,8 @@ class _MainShellState extends State<MainShell> {
       await prefs.setBool('pingBestOfTwo', pingBestOfTwo);
       await prefs.setBool('pingBypassRouting', pingBypassRouting);
       await prefs.setBool('enableIPv6', enableIPv6);
-      await prefs.setBool('blockQuic', blockQuic);
+      await prefs.setInt('mtuSize', mtuSize);
+      await prefs.setBool('keepCpuAlive', keepCpuAlive);
       await prefs.setStringList('bypassApps', bypassApps.toList());
       await prefs.setBool('autoPingOnOpen', autoPingOnOpen);
       await prefs.setBool('iranianAutoDone', iranianAutoDone);
@@ -1747,7 +1744,8 @@ class _MainShellState extends State<MainShell> {
         pingBestOfTwo = prefs.getBool('pingBestOfTwo') ?? false;
         pingBypassRouting = prefs.getBool('pingBypassRouting') ?? false;
         enableIPv6 = prefs.getBool('enableIPv6') ?? false;
-        blockQuic = prefs.getBool('blockQuic') ?? false;
+        mtuSize = prefs.getInt('mtuSize') ?? 1500;
+        keepCpuAlive = prefs.getBool('keepCpuAlive') ?? true;
         bypassApps
           ..clear()
           ..addAll(prefs.getStringList('bypassApps') ?? const <String>[]);
@@ -1896,16 +1894,15 @@ class _MainShellState extends State<MainShell> {
           'port': '53',
           'outboundTag': 'dns-out',
         },
-      ];
-
-      if (blockQuic) {
-        rules.add({
+        // مسدودسازی دائم QUIC (UDP 443) بدون نیاز به سوئیچ در تنظیمات
+        {
           'type': 'field',
           'network': 'udp',
           'port': '443',
           'outboundTag': 'blackhole',
-        });
-      }
+        },
+      ];
+
       if (bypassLan) {
         rules.add({
           'type': 'field',
@@ -2213,14 +2210,13 @@ class _MainShellState extends State<MainShell> {
   Future<void> checkForXrayCoreUpdate() async {
     if (isCheckingUpdate) return;
     setState(() => isCheckingUpdate = true);
-    showSnack('در حال بررسی آخرین نسخه هسته Xray از گیت‌هاب...');
+    showSnack('در حال بررسی آخرین نسخه هسته Xray...');
 
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 12);
     try {
       final req = await client.getUrl(
-        Uri.parse(
-            'https://api.github.com/repos/XTLS/Xray-core/releases/latest'),
+        Uri.parse('https://api.github.com/repos/XTLS/Xray-core/releases/latest'),
       );
       req.headers.set('User-Agent', 'SHIN-Updater');
       final resp = await req.close().timeout(const Duration(seconds: 15));
@@ -2233,7 +2229,7 @@ class _MainShellState extends State<MainShell> {
       if (!mounted) return;
       _infoSheet(
         icon: Icons.memory_rounded,
-        color: const Color(0xFF22C55E),
+        color: const Color(0xFF10B981),
         title: 'وضعیت هسته Xray',
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2243,7 +2239,7 @@ class _MainShellState extends State<MainShell> {
             _kv('آخرین نسخهٔ رسمی', '$latestTag ($publishedAt)'),
             const SizedBox(height: 6),
             const Text(
-              'هسته Xray داخل کتابخانهٔ پلاگین است و با بروزرسانی پلاگین ارتقا می‌یابد.',
+              'هسته Xray به همراه کتابخانه کامپایل شده و آماده بهره‌برداری است.',
               style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.6),
             ),
           ],
@@ -2343,7 +2339,7 @@ class _MainShellState extends State<MainShell> {
   void _showUpdateSheet() {
     _infoSheet(
       icon: Icons.system_update_rounded,
-      color: const Color(0xFF4F7CFF),
+      color: const Color(0xFF3B82F6),
       title: 'نسخهٔ جدید $availableVersion',
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2458,7 +2454,7 @@ class _MainShellState extends State<MainShell> {
       }
       await sink.close();
       if (total > 0 && received != total) {
-        throw 'دانلود کامل نشد (${_fmtBytes(received)} از ${_fmtBytes(total)})';
+        throw 'دانلود کامل نشد';
       }
 
       if (mounted) Navigator.of(context, rootNavigator: true).maybePop();
@@ -3269,10 +3265,10 @@ class _MainShellState extends State<MainShell> {
       child: Text(
         text,
         style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
           color: Colors.grey,
-          letterSpacing: 0.8,
+          letterSpacing: 0.5,
         ),
       ),
     );
@@ -3283,14 +3279,15 @@ class _MainShellState extends State<MainShell> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.4)),
       ),
       child: Column(
         children: [
           for (var i = 0; i < children.length; i++) ...[
             children[i],
             if (i < children.length - 1)
-              const Divider(height: 1, indent: 16, endIndent: 16),
+              Divider(height: 1, indent: 56, color: Theme.of(context).dividerColor.withOpacity(0.5)),
           ],
         ],
       ),
@@ -3298,13 +3295,23 @@ class _MainShellState extends State<MainShell> {
   }
 
   Widget _settingsSwitch({
+    required IconData icon,
+    required Color iconColor,
     required String title,
     String? subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
     return SwitchListTile(
-      title: Text(title, style: const TextStyle(fontSize: 14)),
+      secondary: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: iconColor.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, color: iconColor, size: 22),
+      ),
+      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
       subtitle: subtitle == null
           ? null
           : Text(subtitle, style: const TextStyle(fontSize: 11, color: Colors.grey)),
@@ -3318,15 +3325,22 @@ class _MainShellState extends State<MainShell> {
 
   Widget _settingsTile({
     required IconData icon,
-    Color? color,
+    required Color iconColor,
     required String title,
     String? subtitle,
     Widget? trailing,
     VoidCallback? onTap,
   }) {
     return ListTile(
-      leading: Icon(icon, color: color),
-      title: Text(title, style: TextStyle(fontSize: 14, color: color)),
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: iconColor.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, color: iconColor, size: 22),
+      ),
+      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
       subtitle: subtitle == null
           ? null
           : Text(subtitle,
@@ -3359,6 +3373,19 @@ class _MainShellState extends State<MainShell> {
     )).then((_) => _settingsRebuild = null);
   }
 
+  void _openAdvancedSettings() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: _buildAdvancedSettingsPage(setLocal),
+          );
+        },
+      ),
+    ));
+  }
+
   void _showAddChooser() {
     showModalBottomSheet(
       context: context,
@@ -3368,7 +3395,7 @@ class _MainShellState extends State<MainShell> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
           child: Column(
-            mainAxisSize: min(1, 1) == 1 ? MainAxisSize.min : MainAxisSize.max,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               ListTile(
@@ -3844,7 +3871,7 @@ class _MainShellState extends State<MainShell> {
     final connecting = pending != null ||
         isConnecting ||
         v2rayStatus.state == 'DISCONNECTING';
-    final accent = connected ? const Color(0xFF22C55E) : const Color(0xFF4F7CFF);
+    final accent = connected ? const Color(0xFF10B981) : const Color(0xFF3B82F6);
     final statusTitle = pending == false
         ? 'در حال قطع...'
         : connected
@@ -3989,8 +4016,8 @@ class _MainShellState extends State<MainShell> {
   Color _pingTone(int? ping) {
     if (ping == null) return Colors.grey;
     if (ping <= 0) return const Color(0xFFFF5252);
-    if (ping <= 200) return const Color(0xFF22C55E);
-    if (ping <= 400) return const Color(0xFFFFA726);
+    if (ping <= 200) return const Color(0xFF10B981);
+    if (ping <= 400) return const Color(0xFFF59E0B);
     return const Color(0xFFFF5252);
   }
 
@@ -4085,7 +4112,7 @@ class _MainShellState extends State<MainShell> {
               ListTile(
                 title: Text(
                   server.remark,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
                 subtitle: Text(
                   '${server.protocol} • ${server.subName}',
@@ -4103,7 +4130,7 @@ class _MainShellState extends State<MainShell> {
               if (server.rawUrl.isNotEmpty)
                 ListTile(
                   leading: const Icon(Icons.link_rounded),
-                  title: const Text('کپی لینک اشتراک‌گذاری سرور'),
+                  title: const Text('کپی لینک سرور'),
                   onTap: () {
                     Clipboard.setData(ClipboardData(text: server.rawUrl));
                     Navigator.pop(ctx);
@@ -4291,7 +4318,7 @@ class _MainShellState extends State<MainShell> {
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Text(
-                    'برنامه‌های انتخاب‌شده مستقیم و بدون VPN وصل می‌شوند. تغییرات بعد از قطع و وصل مجدد اعمال می‌شود.',
+                    'برنامه‌های انتخاب‌شده مستقیم و بدون VPN وصل می‌شوند.',
                     style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.6),
                   ),
                 ),
@@ -4331,159 +4358,339 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  Widget _buildSettingsTab() {
+  void _exportBackup() {
+    final data = {
+      'app': 'SHIN',
+      'version': kAppVersion,
+      'servers': servers.map((e) => e.toJson()).toList(),
+      'subscriptions': subscriptions.map((e) => e.toJson()).toList(),
+      'dns': selectedDns,
+      'bypassIran': bypassIran,
+      'bypassLan': bypassLan,
+      'enableMux': enableMux,
+      'enableIPv6': enableIPv6,
+      'mtuSize': mtuSize,
+    };
+    final jsonStr = jsonEncode(data);
+    Clipboard.setData(ClipboardData(text: jsonStr));
+    showSnack('پشتیبان کامل در کلیپ‌بورد کپی شد 📋');
+  }
+
+  Future<void> _importBackup() async {
+    final d = await Clipboard.getData(Clipboard.kTextPlain);
+    final raw = d?.text?.trim() ?? '';
+    if (raw.isEmpty) {
+      showSnack('کلیپ‌بورد خالی است!');
+      return;
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['app'] == 'SHIN') {
+        final serverList = decoded['servers'];
+        if (serverList is List) {
+          for (final s in serverList) {
+            try {
+              servers.add(ServerItem.fromJson(JsonMap.from(s)));
+            } catch (_) {}
+          }
+        }
+        final subList = decoded['subscriptions'];
+        if (subList is List) {
+          for (final s in subList) {
+            try {
+              subscriptions.add(SubscriptionItem.fromJson(JsonMap.from(s)));
+            } catch (_) {}
+          }
+        }
+        await savePersistentData();
+        setState(() {});
+        showSnack('پشتیبان با موفقیت بازیابی شد ✅');
+      } else {
+        showSnack('فرمت فایل پشتیبان معتبر نیست');
+      }
+    } catch (_) {
+      showSnack('خطا در خواندن فایل پشتیبان');
+    }
+  }
+
+  Widget _buildAdvancedSettingsPage(void Function(void Function()) setLocal) {
     return Scaffold(
-      appBar: AppBar(title: const Text('تنظیمات')),
+      appBar: AppBar(title: const Text('تنظیمات فوق پیشرفته')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          _sectionTitle('ظاهر'),
-          SegmentedButton<AppThemeModeSetting>(
-            segments: const [
-              ButtonSegment(
-                value: AppThemeModeSetting.system,
-                label: Text('سیستم'),
-                icon: Icon(Icons.brightness_auto_rounded),
-              ),
-              ButtonSegment(
-                value: AppThemeModeSetting.dark,
-                label: Text('تیره'),
-                icon: Icon(Icons.dark_mode_rounded),
-              ),
-              ButtonSegment(
-                value: AppThemeModeSetting.light,
-                label: Text('روشن'),
-                icon: Icon(Icons.light_mode_rounded),
-              ),
-            ],
-            selected: {widget.currentTheme},
-            onSelectionChanged: (val) {
-              widget.onThemeChanged(val.first);
-              _settingsRebuild?.call();
-            },
-          ),
-          _sectionTitle('برنامه‌ها'),
-          _settingsCard([
-            _settingsTile(
-              icon: Icons.apps_rounded,
-              title: 'برنامه‌های خارج از VPN',
-              subtitle: '${bypassApps.length} برنامه انتخاب شده',
-              onTap: _openAppsPage,
-            ),
-          ]),
-          _sectionTitle('مسیریابی'),
+          _sectionTitle('تنظیمات هسته Xray'),
           _settingsCard([
             _settingsSwitch(
-              title: 'بای‌پس ایران',
-              subtitle: 'دامنه‌های .ir و آی‌پی‌های ایران مستقیم باز می‌شوند',
-              value: bypassIran,
-              onChanged: (v) => _applySetting(() => bypassIran = v),
-            ),
-            _settingsSwitch(
-              title: 'بای‌پس شبکهٔ محلی',
-              subtitle: 'ترافیک شبکهٔ محلی مستقیم وصل می‌شود',
-              value: bypassLan,
-              onChanged: (v) => _applySetting(() => bypassLan = v),
-            ),
-          ]),
-          _sectionTitle('پیشرفته'),
-          _settingsCard([
-            _settingsSwitch(
+              icon: Icons.alt_route_rounded,
+              iconColor: const Color(0xFF6366F1),
               title: 'تجمیع اتصال (Mux)',
-              subtitle: 'برای Reality و XHTTP خاموش بماند',
+              subtitle: 'ارسال چند درخواست روی یک اتصال (برای Reality خاموش باشد)',
               value: enableMux,
-              onChanged: (v) => _applySetting(() => enableMux = v),
+              onChanged: (v) {
+                _applySetting(() => enableMux = v);
+                setLocal(() {});
+              },
             ),
             _settingsSwitch(
-              title: 'پینگ خودکار هنگام باز شدن',
-              subtitle: 'بعد از هر بار باز کردن برنامه، پینگ همهٔ سرورها گرفته شود',
-              value: autoPingOnOpen,
-              onChanged: (v) => _applySetting(() => autoPingOnOpen = v),
-            ),
-            _settingsSwitch(
-              title: 'بستن QUIC (UDP 443)',
-              subtitle: 'اگر اینستاگرام و بعضی سایت‌ها باز نمی‌شوند، روشن بماند',
-              value: blockQuic,
-              onChanged: (v) => _applySetting(() => blockQuic = v),
-            ),
-            _settingsSwitch(
-              title: 'IPv6',
-              subtitle: 'فقط اگر شبکه‌ات IPv6 دارد روشن کن',
-              value: enableIPv6,
-              onChanged: (v) => _applySetting(() => enableIPv6 = v),
-            ),
-            _settingsSwitch(
+              icon: Icons.shield_outlined,
+              iconColor: const Color(0xFFEF4444),
               title: 'پذیرش TLS نامعتبر',
-              subtitle: 'گواهی‌های نامعتبر را قبول کن',
+              subtitle: 'گواهی‌های ناامن یا خودامضا را بپذیر',
               value: allowInsecureDefault,
-              onChanged: (v) => _applySetting(() => allowInsecureDefault = v),
+              onChanged: (v) {
+                _applySetting(() => allowInsecureDefault = v);
+                setLocal(() {});
+              },
             ),
             _settingsSwitch(
-              title: 'اعمال مسیریابی روی پینگ',
-              subtitle: 'قوانین بای‌پس را در پینگ اعمال کن',
-              value: pingBypassRouting,
-              onChanged: (v) => _applySetting(() => pingBypassRouting = v),
+              icon: Icons.language_rounded,
+              iconColor: const Color(0xFF06B6D4),
+              title: 'پشتیبانی از IPv6',
+              subtitle: 'فقط در صورت پشتیبانی اپراتور یا اینترنت شما',
+              value: enableIPv6,
+              onChanged: (v) {
+                _applySetting(() => enableIPv6 = v);
+                setLocal(() {});
+              },
             ),
             _settingsSwitch(
-              title: 'بهترین از دو پینگ',
-              subtitle: 'دو درخواست بفرست و سریع‌تر را نگه دار',
-              value: pingBestOfTwo,
-              onChanged: (v) => _applySetting(() => pingBestOfTwo = v),
+              icon: Icons.bolt_rounded,
+              iconColor: const Color(0xFFF59E0B),
+              title: 'بیدار نگه‌داشتن پردازنده (Keep CPU Awake)',
+              subtitle: 'جلوگیری از قطع و فریز شدن VPN هنگام خاموشی صفحه',
+              value: keepCpuAlive,
+              onChanged: (v) {
+                _applySetting(() => keepCpuAlive = v);
+                setLocal(() {});
+              },
             ),
             ListTile(
-              title: const Text('مهلت پینگ', style: TextStyle(fontSize: 14)),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8B5CF6).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.tune_rounded, color: Color(0xFF8B5CF6), size: 22),
+              ),
+              title: const Text('اندازه MTU پکت‌ها', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              trailing: DropdownButton<int>(
+                value: mtuSize,
+                underline: const SizedBox(),
+                items: const [
+                  DropdownMenuItem(value: 1280, child: Text('1280 (پایدار)')),
+                  DropdownMenuItem(value: 1400, child: Text('1400 (همراه)')),
+                  DropdownMenuItem(value: 1500, child: Text('1500 (استاندارد)')),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    _applySetting(() => mtuSize = val);
+                    setLocal(() {});
+                  }
+                },
+              ),
+            ),
+          ]),
+          _sectionTitle('تنظیمات و متد تست پینگ'),
+          _settingsCard([
+            _settingsSwitch(
+              icon: Icons.timeline_rounded,
+              iconColor: const Color(0xFF10B981),
+              title: 'اعمال مسیریابی روی پینگ',
+              subtitle: 'قوانین بای‌پس ایران و LAN را در پینگ محاسبه کن',
+              value: pingBypassRouting,
+              onChanged: (v) {
+                _applySetting(() => pingBypassRouting = v);
+                setLocal(() {});
+              },
+            ),
+            _settingsSwitch(
+              icon: Icons.filter_2_rounded,
+              iconColor: const Color(0xFF3B82F6),
+              title: 'بهترین از دو پینگ (Best of Two)',
+              subtitle: 'دو پینگ مجزا ارسال و نتیجه سریع‌تر ثبت می‌شود',
+              value: pingBestOfTwo,
+              onChanged: (v) {
+                _applySetting(() => pingBestOfTwo = v);
+                setLocal(() {});
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEC4899).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.timer_outlined, color: Color(0xFFEC4899), size: 22),
+              ),
+              title: const Text('مهلت پینگ (Timeout)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               trailing: SegmentedButton<int>(
                 segments: const [
                   ButtonSegment(value: 5, label: Text('5s')),
+                  ButtonSegment(value: 10, label: Text('10s')),
                   ButtonSegment(value: 15, label: Text('15s')),
                 ],
                 selected: {pingProxyTimeoutSec},
                 onSelectionChanged: (v) {
                   _applySetting(() => pingProxyTimeoutSec = v.first);
+                  setLocal(() {});
                   savePersistentData();
                 },
               ),
             ),
             _settingsTile(
               icon: Icons.link_rounded,
-              title: 'آدرس تست پینگ',
+              iconColor: const Color(0xFF64748B),
+              title: 'آدرس تست تأخیر (Ping URL)',
               subtitle: pingTestUrl,
               trailing: const Icon(Icons.edit_rounded, size: 18),
               onTap: _editPingUrl,
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('DNS ترجیحی', style: TextStyle(fontSize: 14)),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final d in kDnsOptions)
-                        ChoiceChip(
-                          label: Text(d),
-                          selected: selectedDns == d,
-                          onSelected: (_) {
-                            _applySetting(() => selectedDns = d);
-                            savePersistentData();
-                          },
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+          ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsTab() {
+    return Scaffold(
+      appBar: AppBar(title: const Text('تنظیمات')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+        children: [
+          _sectionTitle('پوسته و ظاهر'),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.4)),
+            ),
+            child: SegmentedButton<AppThemeModeSetting>(
+              segments: const [
+                ButtonSegment(
+                  value: AppThemeModeSetting.system,
+                  label: Text('سیستم'),
+                  icon: Icon(Icons.brightness_auto_rounded),
+                ),
+                ButtonSegment(
+                  value: AppThemeModeSetting.dark,
+                  label: Text('تیره'),
+                  icon: Icon(Icons.dark_mode_rounded),
+                ),
+                ButtonSegment(
+                  value: AppThemeModeSetting.light,
+                  label: Text('روشن'),
+                  icon: Icon(Icons.light_mode_rounded),
+                ),
+              ],
+              selected: {widget.currentTheme},
+              onSelectionChanged: (val) {
+                widget.onThemeChanged(val.first);
+                _settingsRebuild?.call();
+              },
+            ),
+          ),
+          _sectionTitle('مسیریابی هوشمند و ترافیک'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.apps_rounded,
+              iconColor: const Color(0xFF3B82F6),
+              title: 'برنامه‌های خارج از VPN (Split Tunneling)',
+              subtitle: '${bypassApps.length} برنامه مستقیم وصل می‌شوند',
+              onTap: _openAppsPage,
+            ),
+            _settingsSwitch(
+              icon: Icons.flag_circle_rounded,
+              iconColor: const Color(0xFF10B981),
+              title: 'بای‌پس ایران',
+              subtitle: 'دامنه‌های .ir و سرورهای داخلی مستقیم و پرسرعت باز شوند',
+              value: bypassIran,
+              onChanged: (v) => _applySetting(() => bypassIran = v),
+            ),
+            _settingsSwitch(
+              icon: Icons.router_rounded,
+              iconColor: const Color(0xFFF59E0B),
+              title: 'بای‌پس شبکهٔ محلی (LAN)',
+              subtitle: 'ارتباط مستقیم با مودم و دستگاه‌های داخل خانه',
+              value: bypassLan,
+              onChanged: (v) => _applySetting(() => bypassLan = v),
+            ),
+            _settingsSwitch(
+              icon: Icons.speed_rounded,
+              iconColor: const Color(0xFF8B5CF6),
+              title: 'پینگ خودکار در آغاز کار',
+              subtitle: 'سنجش زنده تأخیر سرورها به محض باز کردن برنامه',
+              value: autoPingOnOpen,
+              onChanged: (v) => _applySetting(() => autoPingOnOpen = v),
             ),
           ]),
-          _sectionTitle('پشتیبانی'),
+          _sectionTitle('سرور DNS ترجیحی'),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.4)),
+            ),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final d in kDnsOptions)
+                  ChoiceChip(
+                    label: Text(
+                      d == '94.140.14.14'
+                          ? 'AdGuard DNS'
+                          : d == '1.1.1.1'
+                              ? 'Cloudflare (1.1.1.1)'
+                              : d == '8.8.8.8'
+                                  ? 'Google (8.8.8.8)'
+                                  : d,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    selected: selectedDns == d,
+                    onSelected: (_) {
+                      _applySetting(() => selectedDns = d);
+                      savePersistentData();
+                    },
+                  ),
+              ],
+            ),
+          ),
+          _sectionTitle('تنظیمات اختصاصی'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.tune_rounded,
+              iconColor: const Color(0xFF6366F1),
+              title: 'تنظیمات فوق پیشرفته موتور',
+              subtitle: 'تنظیم MTU، Mux، پینگ زنده و پروتکل‌ها',
+              onTap: _openAdvancedSettings,
+            ),
+            _settingsTile(
+              icon: Icons.file_upload_outlined,
+              iconColor: const Color(0xFF0EA5E9),
+              title: 'پشتیبان‌گیری از اطلاعات (Export)',
+              subtitle: 'کپی کردن تمام سرورها و کانفیگ‌ها در کلیپ‌بورد',
+              onTap: _exportBackup,
+            ),
+            _settingsTile(
+              icon: Icons.file_download_outlined,
+              iconColor: const Color(0xFF10B981),
+              title: 'بازیابی اطلاعات (Import Backup)',
+              subtitle: 'بازگردانی اطلاعات از متن کپی‌شده',
+              onTap: _importBackup,
+            ),
+          ]),
+          _sectionTitle('اطلاعات و پشتیبانی'),
           _settingsCard([
             _settingsTile(
               icon: Icons.system_update_rounded,
-              color: Colors.blueAccent,
+              iconColor: const Color(0xFF3B82F6),
               title: 'بررسی بروزرسانی برنامه',
-              subtitle: 'نسخهٔ فعلی $kAppVersion',
+              subtitle: 'نسخهٔ فعال: $kAppVersion',
               trailing: isCheckingUpdate
                   ? const SizedBox(
                       width: 18,
@@ -4495,20 +4702,58 @@ class _MainShellState extends State<MainShell> {
             ),
             _settingsTile(
               icon: Icons.memory_rounded,
-              color: Colors.greenAccent,
-              title: 'هستهٔ Xray',
+              iconColor: const Color(0xFF10B981),
+              title: 'هستهٔ پردازشی Xray',
               subtitle: coreVersion,
               trailing: const Icon(Icons.sync_rounded, size: 20),
               onTap: checkForXrayCoreUpdate,
             ),
             _settingsTile(
               icon: Icons.fingerprint_rounded,
-              title: 'شناسهٔ دستگاه',
+              iconColor: const Color(0xFF8B5CF6),
+              title: 'شناسه اختصاصی دستگاه (HWID)',
               subtitle: hwid,
               trailing: const Icon(Icons.copy_rounded, size: 18),
               onTap: () {
                 Clipboard.setData(ClipboardData(text: hwid));
                 showSnack('شناسه HWID کپی شد');
+              },
+            ),
+          ]),
+          _sectionTitle('منطقهٔ پاکسازی'),
+          _settingsCard([
+            _settingsTile(
+              icon: Icons.delete_sweep_rounded,
+              iconColor: const Color(0xFFEF4444),
+              title: 'حذف همه سرورها و بازنشانی کامل',
+              subtitle: 'حذف تمامی سرورها، اشتراک‌ها و ریست به حالت اول',
+              onTap: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('پاکسازی کامل داده‌ها'),
+                    content: const Text('آیا مطمئن هستید؟ همه سرورها و تنظیمات حذف خواهند شد.'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('انصراف')),
+                      FilledButton(
+                        style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('حذف همه'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok == true) {
+                  if (isConnected || isConnecting) await flutterV2ray.stopV2Ray();
+                  setState(() {
+                    servers.clear();
+                    subscriptions.clear();
+                    selectedServerId = '';
+                    selectedGroupFilter = 'ALL';
+                  });
+                  await savePersistentData();
+                  showSnack('تمام سرورها و داده‌ها پاکسازی شدند');
+                }
               },
             ),
           ]),
@@ -4559,6 +4804,15 @@ class _PowerButton extends StatelessWidget {
                 shape: BoxShape.circle,
                 color: card,
                 border: Border.all(color: ringColor, width: 2),
+                boxShadow: connected
+                    ? [
+                        BoxShadow(
+                          color: accent.withOpacity(0.25),
+                          blurRadius: 24,
+                          spreadRadius: 4,
+                        ),
+                      ]
+                    : null,
               ),
               child: Center(
                 child: Text(
