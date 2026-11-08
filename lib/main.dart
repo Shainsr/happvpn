@@ -18,9 +18,6 @@ typedef IntMap = Map<String, int>;
 const MethodChannel kQuickControlsChannel =
     MethodChannel('com.example.happ_vpn/quick_controls');
 
-// ---------------------------------------------------------------------------
-//  تنظیمات ارتباط با سازنده (برای دریافت درخواست سرور از سمت کاربر)
-// ---------------------------------------------------------------------------
 const String kCreatorWebhookUrl = '';
 const String kCreatorDefaultSubUrl = '';
 
@@ -59,7 +56,7 @@ bool isNewerVersion(String remote, String local) {
   return false;
 }
 
-Future?> fetchLatestReleaseInfo() async {
+Future<StringMap?> fetchLatestReleaseInfo() async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
   try {
     final req = await client.getUrl(
@@ -110,9 +107,7 @@ class UpdateNotifier {
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // هندلینگ امن کلیک روی نوتیفیکیشن برای جلوگیری از کرش در اندروید ۱۲+
-      },
+      onDidReceiveNotificationResponse: (NotificationResponse response) {},
     );
   }
 
@@ -166,24 +161,23 @@ void shinUpdateDispatcher() {
   });
 }
 
-/// برنامه‌های شناخته‌شدهٔ ایرانی (به‌علاوه‌ی هر پکیجی که با ir. شروع شود)
 const Set<String> kIranianPackages = {
-  'ir.nasim', // بله
-  'ir.divar', // دیوار
-  'com.bama.consumer', // باما
-  'com.farsitel.bazaar', // کافه‌بازار
-  'com.bazambazi', // بازم‌بازی
-  'com.samanpr.blu', // blu
-  'daal.co', // دال
-  'com.bmelat.mobile', // دیما
-  'com.aparat', // آپارات
-  'cab.snapp.passenger.play', // اسنپ
+  'ir.nasim',
+  'ir.divar',
+  'com.bama.consumer',
+  'com.farsitel.bazaar',
+  'com.bazambazi',
+  'com.samanpr.blu',
+  'daal.co',
+  'com.bmelat.mobile',
+  'com.aparat',
+  'cab.snapp.passenger.play',
 };
 
 const List<String> kIranianBankWords = [
   'بانک', 'بام', 'سکه', 'ویپاد', 'وپاد', 'فراز', 'همراه بانک', 'ملی', 'ملت',
   'سپه', 'صادرات', 'تجارت', 'پاسارگاد', 'ایران زمین', 'دی جت', 'بلو',
-  'همراه کارت', 'آپ', 'قبضینو', 'بانکینو', 'پاسارگاد', 'شهر', 'کشاورزی',
+  'همراه کارت', 'آپ', 'قبضینو', 'بانکینو', 'شهر', 'کشاورزی',
   'مسکن', 'توسعه', 'رفاه', 'اقتصاد نوین', 'پست بانک', 'سامان', 'سینا',
   'آینده', 'کارآفرین', 'گردشگری', 'خاورمیانه', 'دی', 'ایران',
   'bank', 'Bank',
@@ -256,7 +250,6 @@ String detectCountryFromText(String text) {
   return '';
 }
 
-// نقطه ورود پس‌زمینه برای ویجت و Quick Settings بدون باز شدن صفحه برنامه
 @pragma('vm:entry-point')
 Future<void> vpnBackgroundMain() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -307,10 +300,6 @@ Future<void> vpnBackgroundMain() async {
   } catch (_) {}
 }
 
-// ---------------------------------------------------------------------------
-//  ثابت‌ها و تنظیمات پایه
-// ---------------------------------------------------------------------------
-
 const String kAppVersion =
     String.fromEnvironment('APP_VERSION', defaultValue: '1.00.3');
 
@@ -339,10 +328,6 @@ const List<String> kSupportedSchemes = [
 ];
 
 enum AppThemeModeSetting { system, dark, light }
-
-// ---------------------------------------------------------------------------
-//  پارسر پیشرفته لینک‌ها
-// ---------------------------------------------------------------------------
 
 class ParsedLink {
   final String scheme;
@@ -885,10 +870,6 @@ class LinkParser {
   }
 }
 
-// ---------------------------------------------------------------------------
-//  استخراج سرورها از متن سابسکریپشن یا ورودی JSON
-// ---------------------------------------------------------------------------
-
 class ExtractedEntries {
   final List<String> links = [];
   final List<JsonMap> jsonConfigs = [];
@@ -1104,10 +1085,6 @@ ImportReport buildImport(
   return report;
 }
 
-// ---------------------------------------------------------------------------
-//  دریافت سابسکریپشن
-// ---------------------------------------------------------------------------
-
 class FetchResult {
   int status = 0;
   String body = '';
@@ -1219,10 +1196,6 @@ ServerEndpoint? extractServerEndpoint(String rawConfig) {
   }
   return null;
 }
-
-// ---------------------------------------------------------------------------
-//  مدل‌های داده
-// ---------------------------------------------------------------------------
 
 class ServerItem {
   String id;
@@ -1346,10 +1319,6 @@ class SubscriptionItem {
       );
 }
 
-// ---------------------------------------------------------------------------
-//  توابع فرمت‌بندی و رنگ‌ها
-// ---------------------------------------------------------------------------
-
 String fmtBytes(num bytes, {bool isSpeed = false}) {
   final suffix = isSpeed ? '/s' : '';
   if (bytes <= 1023) return '${bytes.toInt()} B$suffix';
@@ -1394,10 +1363,6 @@ Color protocolBadgeColor(String protocol) {
       return const Color(0xFF78909C);
   }
 }
-
-// ---------------------------------------------------------------------------
-//  ریشه اپلیکیشن و مدیریت تم
-// ---------------------------------------------------------------------------
 
 class ShinVPNApp extends StatefulWidget {
   const ShinVPNApp({super.key});
@@ -1515,10 +1480,6 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
   }
 }
 
-// ---------------------------------------------------------------------------
-//  پوسته اصلی برنامه (MainShell)
-// ---------------------------------------------------------------------------
-
 class MainShell extends StatefulWidget {
   final Function(AppThemeModeSetting) onThemeChanged;
   final AppThemeModeSetting currentTheme;
@@ -1570,7 +1531,7 @@ class _MainShellState extends State<MainShell> {
   final Set<String> _countryGroups = <String>{};
   final Set<String> bypassApps = <String>{};
   bool autoPingOnOpen = true;
-  List> _installedApps = [];
+  List<StringMap> _installedApps = [];
   bool _appsLoading = false;
   bool iranianAutoDone = false;
   String _appsQuery = '';
@@ -1689,8 +1650,6 @@ class _MainShellState extends State<MainShell> {
       if (action == 'toggleVpn' && mounted) await toggleVpn();
     } catch (_) {}
   }
-
-  // ------------------------------------------------------------------ ذخیره‌سازی
 
   Future<void> savePersistentData() async {
     try {
@@ -1832,13 +1791,10 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
-  // ------------------------------------------------------------------ ساخت کانفیگ استاندارد و رفع باگ عدم باز شدن برنامه‌ها
-
   String buildCustomizedConfig(String rawJson) {
     try {
       final JsonMap config = JsonMap.from(jsonDecode(rawJson));
 
-      // ۱. تنظیم سرورهای DNS برای کارکرد صحیح تمام اپلیکیشن‌ها و مرورگرها
       config['dns'] = {
         'servers': <dynamic>[
           selectedDns,
@@ -1854,7 +1810,6 @@ class _MainShellState extends State<MainShell> {
         'queryStrategy': enableIPv6 ? 'UseIP' : 'UseIPv4',
       };
 
-      // ۲. تضمین وجود هر دو پورت Socks (10808) با UDP فعال و HTTP (10809) برای tun2socks
       if (config['inbounds'] is! List || (config['inbounds'] as List).isEmpty) {
         config['inbounds'] = LinkParser.standardInbounds();
       } else {
@@ -1898,7 +1853,6 @@ class _MainShellState extends State<MainShell> {
         }
       }
 
-      // ۳. تنظیمات Outbounds (افزودن تگ proxy، direct با UseIP، blackhole و dns-out)
       String mainProxyTag = 'proxy';
       if (config['outbounds'] is List &&
           (config['outbounds'] as List).isNotEmpty) {
@@ -1936,7 +1890,6 @@ class _MainShellState extends State<MainShell> {
         }
       }
 
-      // ۴. قوانین مسیریابی (Routing) و پاسخ‌دهی پورت 53 (DNS)
       final List<dynamic> rules = [
         {
           'type': 'field',
@@ -1985,7 +1938,6 @@ class _MainShellState extends State<MainShell> {
         });
       }
 
-      // هدایت صریح تمام ترافیک TCP و UDP باقی‌مانده به سمت پروکسی اصلی
       rules.add({
         'type': 'field',
         'network': 'tcp,udp',
@@ -2040,8 +1992,6 @@ class _MainShellState extends State<MainShell> {
       return servers.first;
     }
   }
-
-  // ------------------------------------------------------------------ اتصال
 
   bool _vpnBusy = false;
   bool? _pendingTarget;
@@ -2135,8 +2085,6 @@ class _MainShellState extends State<MainShell> {
     }
     await toggleVpn();
   }
-
-  // ------------------------------------------------------------------ سیستم پینگ
 
   Future<int> _measureThroughTunnel() async {
     final url = Uri.parse(pingTestUrl.replaceFirst('https://', 'http://'));
@@ -2261,8 +2209,6 @@ class _MainShellState extends State<MainShell> {
       await savePersistentData();
     }
   }
-
-  // ------------------------------------------------------------------ بررسی بروزرسانی
 
   Future<void> checkForXrayCoreUpdate() async {
     if (isCheckingUpdate) return;
@@ -2573,8 +2519,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ------------------------------------------------------------------ آپدیت سابسکریپشن
-
   Future<void> updateSubscription(
     SubscriptionItem sub, {
     bool silent = false,
@@ -2767,8 +2711,6 @@ class _MainShellState extends State<MainShell> {
       }
     }
   }
-
-  // ------------------------------------------------------------------ ایمپورت
 
   Future<void> importFromClipboard() async {
     final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -2967,8 +2909,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ------------------------------------------------------------------ ویرایشگر JSON سرور
-
   Widget _kv(String k, String v) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -3150,243 +3090,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ------------------------------------------------------------------ دیالوگ گزارش
-
-  Future<bool> _confirmSheet({
-    required IconData icon,
-    required Color color,
-    required String title,
-    required String message,
-    required String confirmLabel,
-  }) async {
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _sheetHeader(icon, color, title),
-              const SizedBox(height: 14),
-              Text(message, style: const TextStyle(fontSize: 13, height: 1.6)),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('انصراف'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(backgroundColor: color),
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: Text(confirmLabel),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    return ok == true;
-  }
-
-  void _showReportSheet(String title, ImportReport r) {
-    if (!mounted) return;
-    final lines = <String>[];
-    if (r.added > 0) lines.add('✅ ${r.added} سرور با موفقیت خوانده شد');
-    if (r.failed > 0) {
-      lines.add('⚠️ ${r.failed} لینک ناقص بود یا قابل پردازش نبود');
-    }
-    if (r.unsupported.isNotEmpty) {
-      final parts = r.unsupported.entries
-          .map((e) => '${e.key} (${e.value})')
-          .join('، ');
-      lines.add('🚫 پروتکل خارج از هسته Xray: $parts');
-    }
-    if (r.looksLikeHtml) {
-      lines.add(
-          '🌐 سرور یک صفحهٔ وب (HTML) برگرداند. لینک اشتباه است یا نیاز به ثبت HWID دارد.');
-    }
-    if (r.looksLikeClash) {
-      lines.add(
-          '📄 خروجی به فرمت Clash است. لطفاً لینک استاندارد V2Ray/Xray یا Base64 وارد کنید.');
-    }
-    if (r.httpStatus != 0 && r.httpStatus != 200 && r.added == 0) {
-      lines.add('❌ کد پاسخ سرور: ${r.httpStatus}');
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _sheetHeader(Icons.fact_check_rounded, const Color(0xFF3B82F6),
-                  'گزارش پردازش', title),
-              const SizedBox(height: 14),
-              for (final l in lines)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(l, style: const TextStyle(fontSize: 13, height: 1.6)),
-                ),
-              if (r.rawPreview.isNotEmpty && r.added == 0) ...[
-                const SizedBox(height: 6),
-                const Text('پیش‌نمایش پاسخ دریافتی:',
-                    style: TextStyle(color: Colors.grey, fontSize: 12)),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: SelectableText(
-                    r.rawPreview,
-                    textDirection: TextDirection.ltr,
-                    style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 14),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('متوجه شدم'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void deleteServer(ServerItem s) {
-    setState(() {
-      servers.removeWhere((x) => x.id == s.id);
-      if (selectedServerId == s.id) {
-        selectedServerId = servers.isNotEmpty ? servers.first.id : '';
-      }
-    });
-    savePersistentData();
-  }
-
-  Future<void> editSubscriptionDialog(SubscriptionItem sub) async {
-    final nameCtrl = TextEditingController(text: sub.name);
-    final urlCtrl = TextEditingController(text: sub.url);
-    final fbCtrl = TextEditingController(text: sub.fallbackUrl);
-
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            4,
-            20,
-            MediaQuery.of(ctx).viewInsets.bottom + 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _sheetHeader(Icons.rss_feed_rounded, const Color(0xFF3B82F6),
-                  'تنظیمات اشتراک'),
-              const SizedBox(height: 14),
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'نام اشتراک'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: urlCtrl,
-                textDirection: TextDirection.ltr,
-                decoration: const InputDecoration(labelText: 'لینک اصلی'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: fbCtrl,
-                textDirection: TextDirection.ltr,
-                decoration: const InputDecoration(
-                  labelText: 'لینک جایگزین (اختیاری)',
-                ),
-              ),
-              const SizedBox(height: 14),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('ذخیره'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (saved == true) {
-      setState(() {
-        sub.name =
-            nameCtrl.text.trim().isEmpty ? sub.name : nameCtrl.text.trim();
-        sub.url = urlCtrl.text.trim().isEmpty ? sub.url : urlCtrl.text.trim();
-        sub.fallbackUrl = fbCtrl.text.trim();
-        sub.autoName = false;
-        for (final s in servers.where((s) => s.subId == sub.id)) {
-          s.subName = sub.name;
-        }
-      });
-      await savePersistentData();
-      showSnack('اشتراک بروزرسانی شد');
-    }
-  }
-
-  Future<void> deleteSubscription(SubscriptionItem sub) async {
-    final ok = await _confirmSheet(
-      icon: Icons.delete_outline_rounded,
-      color: Colors.redAccent,
-      title: 'حذف اشتراک',
-      message: 'اشتراک «${sub.name}» و تمام سرورهای آن حذف شوند؟',
-      confirmLabel: 'حذف',
-    );
-    if (ok != true) return;
-    setState(() {
-      servers.removeWhere((s) => s.subId == sub.id);
-      subscriptions.removeWhere((s) => s.id == sub.id);
-      if (selectedGroupFilter == sub.id) selectedGroupFilter = 'ALL';
-      if (!servers.any((s) => s.id == selectedServerId)) {
-        selectedServerId = servers.isNotEmpty ? servers.first.id : '';
-      }
-    });
-    await savePersistentData();
-  }
-
   void showSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
@@ -3398,8 +3101,6 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
-
-  // ------------------------------------------------------------------ UI
 
   @override
   Widget build(BuildContext context) {
@@ -3846,15 +3547,20 @@ class _MainShellState extends State<MainShell> {
                         savePersistentData();
                         if (!byCountry) _ensureCountries(servers);
                       }
-                      if (sub != null && v == 'edit') {
-                        editSubscriptionDialog(sub);
-                      }
                       if (sub != null && v == 'copy') {
                         Clipboard.setData(ClipboardData(text: sub.url));
                         showSnack('لینک اشتراک کپی شد');
                       }
                       if (sub != null && v == 'delete') {
-                        deleteSubscription(sub);
+                        setState(() {
+                          servers.removeWhere((s) => s.subId == sub.id);
+                          subscriptions.removeWhere((s) => s.id == sub.id);
+                          if (selectedGroupFilter == sub.id) selectedGroupFilter = 'ALL';
+                          if (!servers.any((s) => s.id == selectedServerId)) {
+                            selectedServerId = servers.isNotEmpty ? servers.first.id : '';
+                          }
+                        });
+                        savePersistentData();
                       }
                     },
                     itemBuilder: (_) => <PopupMenuEntry<String>>[
@@ -3871,10 +3577,6 @@ class _MainShellState extends State<MainShell> {
                             : 'گروه‌بندی: بر اساس کشور'),
                       ),
                       if (sub != null) ...[
-                        const PopupMenuItem<String>(
-                          value: 'edit',
-                          child: Text('تنظیمات اشتراک'),
-                        ),
                         const PopupMenuItem<String>(
                           value: 'copy',
                           child: Text('کپی لینک'),
@@ -4173,12 +3875,25 @@ class _MainShellState extends State<MainShell> {
                 if (availableVersion.isNotEmpty) _updateBanner(),
                 const SizedBox(height: 24),
                 if (servers.isEmpty)
-                  _emptyState(
-                    icon: Icons.dns_outlined,
-                    title: 'هنوز سروری اضافه نشده است',
-                    subtitle: 'لینک سرور یا اشتراک را اضافه کنید.',
-                    actionLabel: 'افزودن سرور',
-                    onAction: _showAddSheet,
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.dns_outlined, size: 52, color: Colors.grey.shade400),
+                          const SizedBox(height: 14),
+                          const Text('هنوز سروری اضافه نشده است',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 14),
+                          FilledButton.icon(
+                            onPressed: _showAddSheet,
+                            icon: const Icon(Icons.add_rounded),
+                            label: const Text('افزودن سرور'),
+                          ),
+                        ],
+                      ),
+                    ),
                   )
                 else
                   ...sections,
@@ -4186,53 +3901,6 @@ class _MainShellState extends State<MainShell> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _emptyState({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    String? actionLabel,
-    VoidCallback? onAction,
-  }) {
-    final color = Theme.of(context).colorScheme.primary;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 84,
-              height: 84,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, size: 40, color: color),
-            ),
-            const SizedBox(height: 16),
-            Text(title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            if (subtitle != null) ...[
-              const SizedBox(height: 6),
-              Text(subtitle,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey, height: 1.6)),
-            ],
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: onAction,
-                icon: const Icon(Icons.add_rounded),
-                label: Text(actionLabel),
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }
@@ -4336,10 +4004,7 @@ class _MainShellState extends State<MainShell> {
               ListTile(
                 title: Text(
                   server.remark,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                 ),
                 subtitle: Text(
                   '${server.protocol} • ${server.subName}',
@@ -4373,15 +4038,17 @@ class _MainShellState extends State<MainShell> {
                 },
               ),
               ListTile(
-                leading:
-                    const Icon(Icons.delete_outline_rounded, color: Colors.red),
-                title: const Text(
-                  'حذف سرور',
-                  style: TextStyle(color: Colors.red),
-                ),
+                leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                title: const Text('حذف سرور', style: TextStyle(color: Colors.red)),
                 onTap: () {
                   Navigator.pop(ctx);
-                  deleteServer(server);
+                  setState(() {
+                    servers.removeWhere((x) => x.id == server.id);
+                    if (selectedServerId == server.id) {
+                      selectedServerId = servers.isNotEmpty ? servers.first.id : '';
+                    }
+                  });
+                  savePersistentData();
                 },
               ),
             ],
@@ -4410,8 +4077,7 @@ class _MainShellState extends State<MainShell> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _sheetHeader(Icons.link_rounded, const Color(0xFF3B82F6),
-                  'آدرس تست پینگ'),
+              _sheetHeader(Icons.link_rounded, const Color(0xFF3B82F6), 'آدرس تست پینگ'),
               const SizedBox(height: 14),
               TextField(
                 controller: controller,
@@ -4478,7 +4144,7 @@ class _MainShellState extends State<MainShell> {
       final raw = await kQuickControlsChannel
               .invokeListMethod<dynamic>('getLaunchableApps') ??
           <dynamic>[];
-      final apps = >[];
+      final apps = <StringMap>[];
       for (final item in raw) {
         if (item is! Map) continue;
         final pkg = (item['package'] ?? '').toString();
@@ -4709,8 +4375,7 @@ class _MainShellState extends State<MainShell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('DNS ترجیحی',
-                      style: TextStyle(fontSize: 14)),
+                  const Text('DNS ترجیحی', style: TextStyle(fontSize: 14)),
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
@@ -4766,43 +4431,11 @@ class _MainShellState extends State<MainShell> {
               },
             ),
           ]),
-          _sectionTitle('منطقهٔ خطر'),
-          _settingsCard([
-            _settingsTile(
-              icon: Icons.delete_sweep_rounded,
-              color: Colors.redAccent,
-              title: 'حذف همهٔ سرورها و اشتراک‌ها',
-              onTap: _confirmClearAll,
-            ),
-          ]),
         ],
       ),
     );
   }
-
-  Future<void> _confirmClearAll() async {
-    final ok = await _confirmSheet(
-      icon: Icons.delete_sweep_rounded,
-      color: Colors.redAccent,
-      title: 'پاک کردن کل اطلاعات؟',
-      message: 'تمام سرورها و اشتراک‌ها حذف خواهند شد.',
-      confirmLabel: 'حذف همه',
-    );
-    if (ok != true) return;
-    if (isConnected || isConnecting) await flutterV2ray.stopV2Ray();
-    setState(() {
-      servers.clear();
-      subscriptions.clear();
-      selectedServerId = '';
-      selectedGroupFilter = 'ALL';
-    });
-    await savePersistentData();
-  }
 }
-
-// ---------------------------------------------------------------------------
-//  دکمهٔ اتصال مینیمال با هاله‌ی رنگی
-// ---------------------------------------------------------------------------
 
 class _PowerButton extends StatelessWidget {
   final bool connected;
@@ -4864,10 +4497,6 @@ class _PowerButton extends StatelessWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-//  راهنمای اولین اجرا
-// ---------------------------------------------------------------------------
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
