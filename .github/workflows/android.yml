@@ -118,7 +118,7 @@ jobs:
           include(":app")
           EOF
 
-      - name: Clean, Install & Patch Plugin Notification Disconnect
+      - name: Clean, Install & Patch Plugin Notification Crash/Close
         run: |
           flutter pub cache clean --force
           flutter pub get
@@ -139,17 +139,38 @@ jobs:
                           content = f.read()
 
                       orig = content
-                      # ۱. اصلاح پرچم‌های PendingIntent برای جلوگیری از کرش در اندروید ۱۲+
-                      content = content.replace("PendingIntent.FLAG_UPDATE_CURRENT", "PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE")
-                      content = content.replace("PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_IMMUTABLE", "PendingIntent.FLAG_IMMUTABLE")
 
-                      # ۲. جلوگیری از بسته شدن کل برنامه (System.exit / killProcess / finishAffinity) هنگام قطع VPN از نوتیفیکیشن
-                      content = re.sub(r'System\.exit\s*\(\s*\d+\s*\)\s*;?', '', content)
-                      content = re.sub(r'exitProcess\s*\(\s*\d+\s*\)', '', content)
-                      content = re.sub(r'android\.os\.Process\.killProcess\s*\([^)]+\)\s*;?', '', content)
-                      content = re.sub(r'Process\.killProcess\s*\([^)]+\)\s*;?', '', content)
+                      # ۱. حذف کامل هرگونه دستور بستن پروسه یا اکتیویتی در پلاگین
+                      content = re.sub(r'System\.exit\s*\([^)]*\)\s*;?', '', content)
+                      content = re.sub(r'exitProcess\s*\([^)]*\)', '', content)
+                      content = re.sub(r'android\.os\.Process\.killProcess\s*\([^)]*\)\s*;?', '', content)
+                      content = re.sub(r'Process\.killProcess\s*\([^)]*\)\s*;?', '', content)
+                      content = re.sub(r'finishAffinity\s*\(\s*\)\s*;?', '', content)
+
+                      # ۲. جایگزینی فلگ‌های مخرب CLEAR_TASK در اینتنت باز کردن اکتیویتی از نوتیفیکیشن
+                      content = content.replace("Intent.FLAG_ACTIVITY_CLEAR_TASK", "Intent.FLAG_ACTIVITY_SINGLE_TOP")
+                      content = content.replace("FLAG_ACTIVITY_CLEAR_TASK", "FLAG_ACTIVITY_SINGLE_TOP")
+
+                      # ۳. اطمینان از وجود FLAG_IMMUTABLE در تمامی PendingIntentها بدون سینتکس اشتباه در کاتلین و جاوا
+                      if fname.endswith(".java"):
+                          content = re.sub(
+                              r'PendingIntent\.getActivity\s*\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*0\s*\)',
+                              r'PendingIntent.getActivity(\1, \2, \3, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)',
+                              content
+                          )
+                          content = re.sub(
+                              r'PendingIntent\.getService\s*\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*0\s*\)',
+                              r'PendingIntent.getService(\1, \2, \3, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)',
+                              content
+                          )
+                          content = re.sub(
+                              r'PendingIntent\.getBroadcast\s*\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*0\s*\)',
+                              r'PendingIntent.getBroadcast(\1, \2, \3, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)',
+                              content
+                          )
 
                       if content != orig:
+                          print(f"Patched successfully: {fpath}")
                           with open(fpath, "w", encoding="utf-8") as f:
                               f.write(content)
           PYEOF
@@ -185,9 +206,11 @@ jobs:
           echo "code=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
           echo "Version $VER, build code $((100 + GITHUB_RUN_NUMBER))"
 
-      - name: Build Universal Release APK Only
+      - name: Build Split Release APKs (ONLY armeabi-v7a and arm64-v8a)
         run: >
           flutter build apk --release
+          --split-per-abi
+          --target-platform android-arm,android-arm64
           --build-name=${{ steps.ver.outputs.name }}
           --build-number=${{ steps.ver.outputs.code }}
           --dart-define=APP_VERSION=${{ steps.ver.outputs.name }}
@@ -201,16 +224,20 @@ jobs:
             "$APKSIGNER" verify --verbose --print-certs "$f"
           done
 
-      - name: Upload Universal APK as artifact
+      - name: Upload 7a and 8a APKs as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SHIN-Universal-Release-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: SHIN-Release-APKs-v7a-v8a
+          path: |
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
 
       - name: Publish GitHub Release (on tag v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           generate_release_notes: true
           draft: true
