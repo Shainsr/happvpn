@@ -126,27 +126,26 @@ class MainActivity : FlutterActivity() {
             .apply()
     }
 
-    private fun getInstalledLaunchableApps(): List> {
+    private fun getInstalledLaunchableApps(): List<Any> {
         val pm = packageManager
         val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
         }
         val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
-        val list = mutableListOf>()
-        val seen = mutableSetOf<String>()
+        val list = ArrayList<HashMap<String, String>>()
+        val seen = HashSet<String>()
 
         for (ri in resolveInfos) {
             val pkg = ri.activityInfo?.packageName ?: continue
             if (pkg == packageName || !seen.add(pkg)) continue
             val label = ri.loadLabel(pm)?.toString() ?: pkg
-            list.add(mapOf("name" to label, "package" to pkg))
+            val map = HashMap<String, String>()
+            map["name"] = label
+            map["package"] = pkg
+            list.add(map)
         }
         
-        list.sortWith(Comparator { a, b ->
-            val n1 = a["name"] ?: ""
-            val n2 = b["name"] ?: ""
-            n1.lowercase(Locale.ROOT).compareTo(n2.lowercase(Locale.ROOT))
-        })
+        list.sortBy { it["name"]?.lowercase(Locale.ROOT) }
         return list
     }
 
