@@ -10,25 +10,26 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
     <application
-        android:label="SHIN"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
         android:usesCleartextTraffic="true"
         android:extractNativeLibs="true"
         tools:replace="android:label,android:extractNativeLibs">
 
         <activity
             android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:taskAffinity=""
-            android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:exported="true"
             android:hardwareAccelerated="true"
+            android:launchMode="singleTask"
+            android:alwaysRetainTaskState="true"
+            android:theme="@style/LaunchTheme"
             android:windowSoftInputMode="adjustResize">
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
@@ -39,7 +40,6 @@
             </intent-filter>
         </activity>
 
-        <!-- کاشی تنظیمات سریع (Quick Settings Tile) -->
         <service
             android:name=".VpnQuickSettingsTileService"
             android:exported="true"
@@ -51,7 +51,6 @@
             </intent-filter>
         </service>
 
-        <!-- ویجت صفحه اصلی -->
         <receiver
             android:name=".VpnHomeWidgetProvider"
             android:exported="true"
@@ -65,7 +64,6 @@
                 android:resource="@xml/widget_vpn_info" />
         </receiver>
 
-        <!-- FileProvider برای نصب خودکار آپدیت APK -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
