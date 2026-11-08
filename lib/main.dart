@@ -2791,6 +2791,87 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  void _showReportSheet(String title, ImportReport r) {
+    if (!mounted) return;
+    final lines = <String>[];
+    if (r.added > 0) lines.add('✅ ${r.added} سرور با موفقیت خوانده شد');
+    if (r.failed > 0) {
+      lines.add('⚠️ ${r.failed} لینک ناقص بود یا قابل پردازش نبود');
+    }
+    if (r.unsupported.isNotEmpty) {
+      final parts = r.unsupported.entries
+          .map((e) => '${e.key} (${e.value})')
+          .join('، ');
+      lines.add('🚫 پروتکل خارج از هسته Xray: $parts');
+    }
+    if (r.looksLikeHtml) {
+      lines.add(
+          '🌐 سرور یک صفحهٔ وب (HTML) برگرداند. لینک اشتباه است یا نیاز به ثبت HWID دارد.');
+    }
+    if (r.looksLikeClash) {
+      lines.add(
+          '📄 خروجی به فرمت Clash است. لطفاً لینک استاندارد V2Ray/Xray یا Base64 وارد کنید.');
+    }
+    if (r.httpStatus != 0 && r.httpStatus != 200 && r.added == 0) {
+      lines.add('❌ کد پاسخ سرور: ${r.httpStatus}');
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sheetHeader(Icons.fact_check_rounded, const Color(0xFF3B82F6),
+                  'گزارش پردازش', title),
+              const SizedBox(height: 14),
+              for (final l in lines)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(l, style: const TextStyle(fontSize: 13, height: 1.6)),
+                ),
+              if (r.rawPreview.isNotEmpty && r.added == 0) ...[
+                const SizedBox(height: 6),
+                const Text('پیش‌نمایش پاسخ دریافتی:',
+                    style: TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: SelectableText(
+                    r.rawPreview,
+                    textDirection: TextDirection.ltr,
+                    style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('متوجه شدم'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showAddSheet() {
     final textCtrl = TextEditingController();
     final nameCtrl = TextEditingController();
@@ -3287,7 +3368,7 @@ class _MainShellState extends State<MainShell> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: min(1, 1) == 1 ? MainAxisSize.min : MainAxisSize.max,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               ListTile(
