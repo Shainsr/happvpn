@@ -13,6 +13,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.Locale
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -140,10 +141,11 @@ class MainActivity : FlutterActivity() {
             val label = ri.loadLabel(pm)?.toString() ?: pkg
             list.add(mapOf("name" to label, "package" to pkg))
         }
+        
         list.sortWith(Comparator { a, b ->
             val n1 = a["name"] ?: ""
             val n2 = b["name"] ?: ""
-            n1.lowercase().compareTo(n2.lowercase())
+            n1.lowercase(Locale.ROOT).compareTo(n2.lowercase(Locale.ROOT))
         })
         return list
     }
