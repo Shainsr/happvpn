@@ -1431,10 +1431,6 @@ class _ShinVPNAppState extends State<ShinVPNApp> {
   }
 }
 
-// ---------------------------------------------------------------------------
-//  پوسته اصلی با گرافیک Cyber-Neon دقیقاً مشابه تصویر ارسالی
-// ---------------------------------------------------------------------------
-
 class MainShell extends StatefulWidget {
   final Function(AppThemeModeSetting) onThemeChanged;
   final AppThemeModeSetting currentTheme;
@@ -1454,7 +1450,6 @@ class _MainShellState extends State<MainShell> {
   V2RayStatus v2rayStatus = V2RayStatus();
   String coreVersion = '...';
 
-  // 0 = Servers, 1 = Settings, 2 = More
   int activeBottomTab = 0;
 
   List<ServerItem> servers = [];
@@ -1476,8 +1471,6 @@ class _MainShellState extends State<MainShell> {
   bool isCheckingUpdate = false;
 
   bool isProxyOnly = false;
-  final Set<String> _sortedGroups = <String>{};
-  final Set<String> _testingGroups = <String>{};
   final Set<String> _countryGroups = <String>{};
   final Set<String> bypassApps = <String>{};
   bool autoPingOnOpen = true;
@@ -1845,7 +1838,6 @@ class _MainShellState extends State<MainShell> {
           'port': '53',
           'outboundTag': 'dns-out',
         },
-        // مسدودسازی دائم QUIC (UDP 443)
         {
           'type': 'field',
           'network': 'udp',
@@ -1939,6 +1931,24 @@ class _MainShellState extends State<MainShell> {
     } catch (_) {
       return servers.first;
     }
+  }
+
+  List<ServerItem> _orderServers(List<ServerItem> list, {bool sort = true}) {
+    if (!sort) return list;
+    int rank(ServerItem s) {
+      final p = s.pingFor(PingMode.real);
+      if (p == null) return 2;
+      if (p <= 0) return 3;
+      return 1;
+    }
+    final copy = List<ServerItem>.from(list);
+    copy.sort((a, b) {
+      final r = rank(a).compareTo(rank(b));
+      if (r != 0) return r;
+      return (a.pingFor(PingMode.real) ?? 0)
+          .compareTo(b.pingFor(PingMode.real) ?? 0);
+    });
+    return copy;
   }
 
   bool _vpnBusy = false;
@@ -3088,17 +3098,12 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  //  UI اصلی برنامه (دقیقاً مشابه عکس HappVPN / SHIN)
-  // ---------------------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF060A17),
       body: Stack(
         children: [
-          // ۱. پس‌زمینه گرادیان فضایی + نقشه نقطه‌ای جهان و مدارهای نوری
           Positioned.fill(
             child: Container(
               decoration: const BoxDecoration(
@@ -3125,8 +3130,6 @@ class _MainShellState extends State<MainShell> {
               ),
             ),
           ),
-
-          // ۲. لایه محتوای اصلی
           SafeArea(
             child: Column(
               children: [
@@ -3171,7 +3174,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ۱. نوار بالای صفحه (چرخ‌دنده چپ، لوگوی سپر نئونی وسط، دکمه + راست)
   Widget _buildCyberTopBar() {
     return Directionality(
       textDirection: TextDirection.ltr,
@@ -3269,7 +3271,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ۲. دکمه گرد نئونی بزرگ وسط صفحه
   Widget _buildCenterOrbSection() {
     final pending = _pendingTarget;
     final connected = pending == null ? isConnected : false;
@@ -3286,7 +3287,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ۳. کپسول وضعیت اتصال و نام سرور + پرچم
   Widget _buildStatusPill() {
     final pending = _pendingTarget;
     final connected = pending == null ? isConnected : false;
@@ -3403,7 +3403,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ۴. پنل شیشه‌ای سرعت Upload / Download
   Widget _buildSpeedGlassPanel() {
     final st = v2rayStatus;
     return Directionality(
@@ -3491,7 +3490,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ۵. کپسول پینگ وسط صفحه (مثلاً 324 ms)
   Widget _buildPingPillButton() {
     final active = selectedServer;
     final ping = active?.pingFor(PingMode.real);
@@ -3552,7 +3550,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ۶. کارت بنفش-آبی Subscription با آیکون تاج طلایی و دکمه زرد Extend
   Widget _buildSubscriptionCrownCard() {
     final sub = subscriptions.isNotEmpty ? subscriptions.first : null;
     String subTitle = sub?.name ?? 'Subscription';
@@ -3684,7 +3681,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ۷. تب‌بار کپسولی (Servers | Settings | More)
   Widget _buildCyberTabSelector() {
     Widget tabBtn(int index, IconData icon, String label) {
       final selected = activeBottomTab == index;
@@ -3759,7 +3755,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ۸. محتوای داخل باکس پایین بر اساس تب انتخابی
   Widget _buildActiveTabContent() {
     if (activeBottomTab == 1) {
       return _buildInlineQuickSettingsCard();
@@ -3810,7 +3805,6 @@ class _MainShellState extends State<MainShell> {
         ),
         child: Column(
           children: [
-            // ردیف نوار مصرف حجم و روزهای باقی‌مانده
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
               child: Row(
@@ -3917,7 +3911,6 @@ class _MainShellState extends State<MainShell> {
               ),
             ),
             const Divider(height: 1, color: Color(0xFF1E2F5D)),
-
             if (ordered.isEmpty)
               Padding(
                 padding: const EdgeInsets.all(28),
@@ -3957,7 +3950,6 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  // ردیف هر سرور به سبک عکس (آیکون چپ، عنوان و پروتکل وسط، بج وضعیت و آیکون اکشن راست)
   Widget _buildCyberServerRow(ServerItem server, int index) {
     final isSelected = server.id == selectedServerId;
     final ping = server.pingFor(PingMode.real);
@@ -4002,7 +3994,7 @@ class _MainShellState extends State<MainShell> {
             colors: [Color(0xFF8B5CF6), Color(0xFF3B82F6)],
           ),
         ),
-        child: const Icon(Icons.Storage_rounded, color: Colors.white, size: 20),
+        child: const Icon(Icons.storage_rounded, color: Colors.white, size: 20),
       );
     }
 
@@ -4201,10 +4193,6 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
-
-  // ---------------------------------------------------------------------------
-  //  صفحات تنظیمات و امکانات جانبی
-  // ---------------------------------------------------------------------------
 
   Widget _sectionTitle(String text) {
     return Padding(
@@ -4793,10 +4781,6 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-// ---------------------------------------------------------------------------
-//  دکمه گرد نئونی ۳ بعدی (مشابه تصویر HappVPN)
-// ---------------------------------------------------------------------------
-
 class _NeonOrbPowerButton extends StatelessWidget {
   final bool connected;
   final bool connecting;
@@ -4823,7 +4807,6 @@ class _NeonOrbPowerButton extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // حلقه بیرونی شیشه‌ای نئونی
             Container(
               width: 205,
               height: 205,
@@ -4849,8 +4832,6 @@ class _NeonOrbPowerButton extends StatelessWidget {
                 ],
               ),
             ),
-
-            // حلقه میانی تیره برای کنتراست
             Container(
               width: 174,
               height: 174,
@@ -4863,8 +4844,6 @@ class _NeonOrbPowerButton extends StatelessWidget {
                 ),
               ),
             ),
-
-            // گوی مرکزی درخشان
             Container(
               width: 154,
               height: 154,
@@ -4934,10 +4913,6 @@ class _NeonOrbPowerButton extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-//  نقاش پس‌زمینه: نقشه نقطه‌ای جهان + خطوط مدار بیضی درخشان
-// ---------------------------------------------------------------------------
-
 class _CyberWorldMapAndOrbitsPainter extends CustomPainter {
   final bool isConnected;
 
@@ -4949,13 +4924,11 @@ class _CyberWorldMapAndOrbitsPainter extends CustomPainter {
       ..color = const Color(0xFF38BDF8).withOpacity(0.14)
       ..style = PaintingStyle.fill;
 
-    // ۱. رسم شبکه نقطه‌ای به شکل نقشه جهان در نیمه بالایی
     const step = 9.0;
     for (double y = 15; y < size.height * 0.78; y += step) {
       for (double x = 16; x < size.width - 16; x += step) {
         final nx = x / size.width;
         final ny = y / (size.height * 0.78);
-        // فرم قاره‌ها با تابع ریاضی متقارن
         final continentMask = (sin(nx * 10) * cos(ny * 6) +
                 sin((nx - 0.2) * 5) +
                 cos((ny - 0.4) * 8)) >
@@ -4966,7 +4939,6 @@ class _CyberWorldMapAndOrbitsPainter extends CustomPainter {
       }
     }
 
-    // ۲. رسم خطوط مدار بیضی‌شکل نوری دور دکمه پاور
     final center = Offset(size.width / 2, size.height * 0.47);
     final orbitPaint1 = Paint()
       ..color = const Color(0xFF00D9F5).withOpacity(0.22)
