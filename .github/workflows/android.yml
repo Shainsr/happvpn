@@ -118,13 +118,13 @@ jobs:
           include(":app")
           EOF
 
-      - name: Clean, Install & Patch Plugin Notification (Add Disconnect Button & Fix Crash)
+      - name: Clean, Install & Patch Plugin Notification Disconnect
         run: |
           flutter pub cache clean --force
           flutter pub get
 
           python3 - << 'PYEOF'
-          import os, glob
+          import os, glob, re
 
           cache_dir = os.path.expanduser("~/.pub-cache/hosted/pub.dev")
           plugin_dirs = glob.glob(os.path.join(cache_dir, "flutter_v2ray_client*"))
@@ -139,28 +139,15 @@ jobs:
                           content = f.read()
 
                       orig = content
-                      # اصلاح پرچم‌های PendingIntent برای امنیت و عدم کرش در اندروید ۱۲ تا ۱۵
+                      # ۱. اصلاح پرچم‌های PendingIntent برای جلوگیری از کرش در اندروید ۱۲+
                       content = content.replace("PendingIntent.FLAG_UPDATE_CURRENT", "PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE")
                       content = content.replace("PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_IMMUTABLE", "PendingIntent.FLAG_IMMUTABLE")
 
-                      # افزودن دکمه قطع اتصال به نوتیفیکیشن سرویس V2Ray
-                      if "NotificationCompat.Builder" in content and "builder.build()" in content and "STOP_VPN_ACTION" not in content:
-                          action_code = """
-                          val _stopIntent = Intent(this, this.javaClass).apply { action = "STOP_VPN_ACTION" }
-                          val _pStop = PendingIntent.getService(this, 9921, _stopIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
-                          builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع اتصال", _pStop)
-                          """
-                          content = content.replace("builder.build()", action_code + "\nbuilder.build()")
-
-                      if "onStartCommand" in content and "STOP_VPN_ACTION" not in content:
-                          stop_handler = """
-                          if (intent?.action == "STOP_VPN_ACTION") {
-                              try { stopV2ray() } catch(_: Exception) { try { stopSelf() } catch(_: Exception) {} }
-                              return START_NOT_STICKY
-                          }
-                          """
-                          if "super.onStartCommand" in content:
-                              content = content.replace("super.onStartCommand(intent, flags, startId)", "super.onStartCommand(intent, flags, startId)\n" + stop_handler)
+                      # ۲. جلوگیری از بسته شدن کل برنامه (System.exit / killProcess / finishAffinity) هنگام قطع VPN از نوتیفیکیشن
+                      content = re.sub(r'System\.exit\s*\(\s*\d+\s*\)\s*;?', '', content)
+                      content = re.sub(r'exitProcess\s*\(\s*\d+\s*\)', '', content)
+                      content = re.sub(r'android\.os\.Process\.killProcess\s*\([^)]+\)\s*;?', '', content)
+                      content = re.sub(r'Process\.killProcess\s*\([^)]+\)\s*;?', '', content)
 
                       if content != orig:
                           with open(fpath, "w", encoding="utf-8") as f:
@@ -198,14 +185,7 @@ jobs:
           echo "code=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
           echo "Version $VER, build code $((100 + GITHUB_RUN_NUMBER))"
 
-      - name: Build Split-per-ABI Release APKs
-        run: >
-          flutter build apk --release --split-per-abi
-          --build-name=${{ steps.ver.outputs.name }}
-          --build-number=${{ steps.ver.outputs.code }}
-          --dart-define=APP_VERSION=${{ steps.ver.outputs.name }}
-
-      - name: Build Universal Release APK
+      - name: Build Universal Release APK Only
         run: >
           flutter build apk --release
           --build-name=${{ steps.ver.outputs.name }}
@@ -221,16 +201,16 @@ jobs:
             "$APKSIGNER" verify --verbose --print-certs "$f"
           done
 
-      - name: Upload APKs as artifact
+      - name: Upload Universal APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SHIN-Signed-Release-APKs
-          path: build/app/outputs/flutter-apk/*.apk
+          name: SHIN-Universal-Release-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
 
       - name: Publish GitHub Release (on tag v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/*.apk
+          files: build/app/outputs/flutter-apk/app-release.apk
           generate_release_notes: true
           draft: true
