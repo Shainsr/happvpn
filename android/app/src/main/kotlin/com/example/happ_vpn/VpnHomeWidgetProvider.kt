@@ -68,9 +68,15 @@ class VpnHomeWidgetProvider : AppWidgetProvider() {
         try {
             val bgRes = if (connected) R.drawable.widget_vpn_background_on else R.drawable.widget_vpn_background
             views.setInt(R.id.widget_root, "setBackgroundResource", bgRes)
-            views.setTextViewText(R.id.widget_status_text, if (connected) "متصل" else "قطع")
-            views.setTextViewText(R.id.widget_server_text, remark)
-            views.setTextViewText(R.id.widget_action_button, if (connected) "قطع اتصال" else "اتصال")
+            
+            val statusId = context.resources.getIdentifier("widget_status_text", "id", context.packageName)
+            if (statusId != 0) views.setTextViewText(statusId, if (connected) "متصل" else "قطع")
+
+            val serverId = context.resources.getIdentifier("widget_server_text", "id", context.packageName)
+            if (serverId != 0) views.setTextViewText(serverId, remark)
+
+            val btnId = context.resources.getIdentifier("widget_action_button", "id", context.packageName)
+            if (btnId != 0) views.setTextViewText(btnId, if (connected) "قطع اتصال" else "اتصال")
         } catch (_: Exception) {}
 
         val toggleIntent = Intent(context, VpnHomeWidgetProvider::class.java).apply {
@@ -83,8 +89,11 @@ class VpnHomeWidgetProvider : AppWidgetProvider() {
         }
         
         try {
-            val pendingToggle = PendingIntent.getBroadcast(context, 1001, toggleIntent, flags)
-            views.setOnClickPendingIntent(R.id.widget_action_button, pendingToggle)
+            val btnId = context.resources.getIdentifier("widget_action_button", "id", context.packageName)
+            if (btnId != 0) {
+                val pendingToggle = PendingIntent.getBroadcast(context, 1001, toggleIntent, flags)
+                views.setOnClickPendingIntent(btnId, pendingToggle)
+            }
 
             val openAppIntent = Intent(context, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
