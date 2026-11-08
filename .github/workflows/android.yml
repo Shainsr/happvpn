@@ -118,18 +118,54 @@ jobs:
           include(":app")
           EOF
 
-      - name: Clean, Install & Patch Plugin Notification Crash
+      - name: Clean, Install & Patch Plugin Notification (Add Disconnect Button & Fix Crash)
         run: |
           flutter pub cache clean --force
           flutter pub get
-          # پچ خودکار پلاگین flutter_v2ray_client برای جلوگیری از کرش نوتیفیکیشن هنگام کلیک در اندروید ۱۲+
-          find ~/.pub-cache/hosted/pub.dev/flutter_v2ray_client* \( -name "*.java" -o -name "*.kt" \) | while read -r file; do
-            sed -i 's/PendingIntent.FLAG_UPDATE_CURRENT/PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE/g' "$file" || true
-            sed -i 's/PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_IMMUTABLE/PendingIntent.FLAG_IMMUTABLE/g' "$file" || true
-            sed -i 's/PendingIntent.getActivity(\([^,]*\),\([^,]*\),\([^,]*\), 0)/PendingIntent.getActivity(\1,\2,\3, PendingIntent.FLAG_IMMUTABLE)/g' "$file" || true
-            sed -i 's/PendingIntent.getService(\([^,]*\),\([^,]*\),\([^,]*\), 0)/PendingIntent.getService(\1,\2,\3, PendingIntent.FLAG_IMMUTABLE)/g' "$file" || true
-            sed -i 's/PendingIntent.getBroadcast(\([^,]*\),\([^,]*\),\([^,]*\), 0)/PendingIntent.getBroadcast(\1,\2,\3, PendingIntent.FLAG_IMMUTABLE)/g' "$file" || true
-          done
+
+          python3 - << 'PYEOF'
+          import os, glob
+
+          cache_dir = os.path.expanduser("~/.pub-cache/hosted/pub.dev")
+          plugin_dirs = glob.glob(os.path.join(cache_dir, "flutter_v2ray_client*"))
+
+          for pdir in plugin_dirs:
+              for root, _, files in os.walk(pdir):
+                  for fname in files:
+                      if not (fname.endswith(".kt") or fname.endswith(".java")):
+                          continue
+                      fpath = os.path.join(root, fname)
+                      with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                          content = f.read()
+
+                      orig = content
+                      # اصلاح پرچم‌های PendingIntent برای امنیت و عدم کرش در اندروید ۱۲ تا ۱۵
+                      content = content.replace("PendingIntent.FLAG_UPDATE_CURRENT", "PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE")
+                      content = content.replace("PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_IMMUTABLE", "PendingIntent.FLAG_IMMUTABLE")
+
+                      # افزودن دکمه قطع اتصال به نوتیفیکیشن سرویس V2Ray
+                      if "NotificationCompat.Builder" in content and "builder.build()" in content and "STOP_VPN_ACTION" not in content:
+                          action_code = """
+                          val _stopIntent = Intent(this, this.javaClass).apply { action = "STOP_VPN_ACTION" }
+                          val _pStop = PendingIntent.getService(this, 9921, _stopIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
+                          builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع اتصال", _pStop)
+                          """
+                          content = content.replace("builder.build()", action_code + "\nbuilder.build()")
+
+                      if "onStartCommand" in content and "STOP_VPN_ACTION" not in content:
+                          stop_handler = """
+                          if (intent?.action == "STOP_VPN_ACTION") {
+                              try { stopV2ray() } catch(_: Exception) { try { stopSelf() } catch(_: Exception) {} }
+                              return START_NOT_STICKY
+                          }
+                          """
+                          if "super.onStartCommand" in content:
+                              content = content.replace("super.onStartCommand(intent, flags, startId)", "super.onStartCommand(intent, flags, startId)\n" + stop_handler)
+
+                      if content != orig:
+                          with open(fpath, "w", encoding="utf-8") as f:
+                              f.write(content)
+          PYEOF
 
       - name: Prepare release signing (fixed keystore from secrets)
         env:
@@ -160,7 +196,7 @@ jobs:
           fi
           echo "name=$VER" >> "$GITHUB_OUTPUT"
           echo "code=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
-          echo "Version $VER, build code$((100 + GITHUB_RUN_NUMBER))"
+          echo "Version $VER, build code $((100 + GITHUB_RUN_NUMBER))"
 
       - name: Build Split-per-ABI Release APKs
         run: >
