@@ -65,13 +65,9 @@ class VpnHomeWidgetProvider : AppWidgetProvider() {
 
         val views = RemoteViews(context.packageName, R.layout.widget_vpn)
         
-        // سازگاری با آیدی‌های پیش‌فرض لایوت ویجت
         try {
-            views.setInt(
-                R.id.widget_root,
-                "setBackgroundResource",
-                if (connected) R.drawable.widget_vpn_background_on else R.drawable.widget_vpn_background
-            )
+            val bgRes = if (connected) R.drawable.widget_vpn_background_on else R.drawable.widget_vpn_background
+            views.setInt(R.id.widget_root, "setBackgroundResource", bgRes)
             views.setTextViewText(R.id.widget_status_text, if (connected) "متصل" else "قطع")
             views.setTextViewText(R.id.widget_server_text, remark)
             views.setTextViewText(R.id.widget_action_button, if (connected) "قطع اتصال" else "اتصال")
